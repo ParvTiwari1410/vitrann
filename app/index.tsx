@@ -76,7 +76,7 @@ export default function Index() {
               style={styles.input}
               secureTextEntry
               editable={!isLoading}
-              keyboardType="number-pad"
+            
               maxLength={6}
             />
 

@@ -29,9 +29,6 @@ A mobile app built using **React Native**, **Expo**, and **EAS Build** to manage
 
 ## 📱 Screenshots
 
-(You can upload app screenshots and link them here like below)
-<<<<<<< HEAD
-=======
+This is the Login page along with credentials-
 
->>>>>>> 73b623c (Updated README with project info)
->>>>>>> ea41f51 (Initial commit - Vitran App)
+![image alt](https://github.com/ParvTiwari1410/vitrann/blob/28ebab4dec1db29b8880a8ccde19a05dd0f2f7c5/Login%20page%20ss.jpg)

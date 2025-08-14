@@ -1,0 +1,49 @@
+{
+  "expo": {
+    "name": "वितरण",
+    "slug": "MyDiaryApp",
+    "version": "1.0.0",
+    "orientation": "portrait",
+     "icon": "./assets/images/logo.png",
+    "scheme": "mydiaryapp",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+       "foregroundImage": "./assets/images/logo.png",
+        "backgroundColor": "#000000"
+      },
+      "edgeToEdgeEnabled": true,
+      "package": "com.parvtx_1410.MyDiaryApp"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/images/logo.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/logo.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff"
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "ae8597a8-8cf6-4de9-a584-8fd00e784b7d"
+      }
+    }
+  }
+}

@@ -1,12 +1,7 @@
-import { useNavigation } from '@react-navigation/native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Image,
-  KeyboardAvoidingView,
-  Platform,
   SafeAreaView,
   StyleSheet,
   Text,
@@ -14,146 +9,126 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { RootStackParamList } from '../app/AppNavigator';
-
-type LoginScreenNavigationProp = NativeStackNavigationProp<
-  RootStackParamList,
-  'LoginScreen'
->;
 
 const LoginScreen = () => {
   const [workerId, setWorkerId] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const navigation = useNavigation<LoginScreenNavigationProp>();
 
   const handleLogin = async () => {
-    const trimmedWorkerId = workerId.trim();
-    if (!trimmedWorkerId) {
-      Alert.alert('Error', 'Please enter your Worker ID');
-      return;
-    }
-    if (password.length < 4) {
-      Alert.alert('Error', 'Password must be at least 4 characters');
+    // Basic validation
+    if (!workerId.trim() || !password.trim()) {
+      Alert.alert('Error', 'Please enter both Worker ID and Password');
       return;
     }
 
     setIsLoading(true);
     try {
-      await new Promise(resolve => setTimeout(resolve, 500));
-      navigation.replace('MorningStock', { workerId: trimmedWorkerId });
+      const response = await fetch('http://localhost:8080/api/worker/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          workerId: workerId.trim(),
+          password: password,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        Alert.alert('Success', 'Login successful!');
+        console.log('Login response:', data);
+        // Add your navigation or next steps here
+      } else {
+        Alert.alert('Login Failed', data.message || 'Invalid credentials');
+      }
     } catch (error) {
-      Alert.alert('Login Failed', 'Please check your credentials');
+      console.error('Login error:', error);
+      Alert.alert('Error', 'Network error. Please try again.');
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView
-        style={styles.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <View style={styles.card}>
-          {/* Logo Image */}
-          <Image
-            source={require('../assets/images/vitran.png')}
-            style={styles.logo}
-            resizeMode="contain"
-          />
-
-          <Text style={styles.heading}>दूध वितरण</Text>
-          <Text style={styles.subtitle}>Worker Login Portal</Text>
-
-          <TextInput
-            placeholder="Worker ID"
-            value={workerId}
-          onChangeText={text => setWorkerId(text.replace(/[^a-zA-Z\s]/g, ''))}
+    <SafeAreaView style={styles.container}>
+      <View style={styles.loginCard}>
+        <Text style={styles.title}>Worker Login</Text>
+        
+        <TextInput
           style={styles.input}
-          />
-
-          <TextInput
-  placeholder="Password"
-  value={password}
-  onChangeText={setPassword}
-  style={styles.input}
-  secureTextEntry={true}
-  keyboardType="default"
-  autoCapitalize="none"
-  autoCorrect={false}
-/>
-
-
-          <TouchableOpacity
-            style={[styles.button, isLoading && styles.buttonDisabled]}
-            onPress={handleLogin}
-            disabled={isLoading}
-          >
-            {isLoading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.buttonText}>LOGIN</Text>
-            )}
-          </TouchableOpacity>
-        </View>
-      </KeyboardAvoidingView>
+          placeholder="Worker ID"
+          value={workerId}
+          onChangeText={setWorkerId}
+          autoCapitalize="none"
+        />
+        
+        <TextInput
+          style={styles.input}
+          placeholder="Password"
+          value={password}
+          onChangeText={setPassword}
+          secureTextEntry
+        />
+        
+        <TouchableOpacity
+          style={[styles.loginButton, isLoading && styles.buttonDisabled]}
+          onPress={handleLogin}
+          disabled={isLoading}
+        >
+          {isLoading ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.buttonText}>LOGIN</Text>
+          )}
+        </TouchableOpacity>
+      </View>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#F8F9FA',
-  },
   container: {
     flex: 1,
     justifyContent: 'center',
-    alignItems: 'center',
+    padding: 20,
+    backgroundColor: '#f5f5f5',
   },
-  card: {
+  loginCard: {
     backgroundColor: '#fff',
-    padding: 24,
+    padding: 20,
     borderRadius: 8,
-    width: '90%',
-    elevation: 3,
+    elevation: 2,
   },
-  logo: {
-    width: 120,
-    height: 120,
-    alignSelf: 'center',
-    marginBottom: 24,
-  },
-  heading: {
-    fontSize: 28,
-    fontWeight: '700',
-    textAlign: 'center',
-  },
-  subtitle: {
-    fontSize: 16,
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
     textAlign: 'center',
     marginBottom: 20,
   },
   input: {
     borderWidth: 1,
-    borderColor: '#ccc',
-    padding: 10,
-    borderRadius: 8,
+    borderColor: '#ddd',
+    padding: 12,
+    borderRadius: 4,
     marginBottom: 16,
+    fontSize: 16,
   },
-  button: {
-    backgroundColor: '#3B82F6',
+  loginButton: {
+    backgroundColor: '#007AFF',
     padding: 14,
-    borderRadius: 8,
+    borderRadius: 4,
     alignItems: 'center',
   },
   buttonDisabled: {
-    backgroundColor: '#93C5FD',
+    backgroundColor: '#ccc',
   },
   buttonText: {
     color: '#fff',
-    fontWeight: '600',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });
 

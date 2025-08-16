@@ -1,6 +1,7 @@
 // app/index.tsx
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
+
 import {
   ActivityIndicator,
   Alert,
@@ -64,6 +65,7 @@ export default function Index() {
               onChangeText={text => setWorkerId(text.replace(/[^a-zA-Z0-9]/g, ''))}
               style={styles.input}
               autoCapitalize="none"
+          
               autoCorrect={false}
               editable={!isLoading}
             />

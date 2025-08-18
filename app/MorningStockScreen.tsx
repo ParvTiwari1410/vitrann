@@ -1,16 +1,24 @@
-import { RouteProp, useRoute } from '@react-navigation/native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { RootStackParamList } from './AppNavigator';
-
-type MorningStockScreenRouteProp = RouteProp<RootStackParamList, 'MorningStock'>;
+import {
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
 const MorningStockScreen = () => {
-  const route = useRoute<MorningStockScreenRouteProp>();
-  const { workerId } = route.params;
+  const params = useLocalSearchParams();
+  const router = useRouter();
 
-  // Product state
-  const [products, setProducts] = useState({
+  // Safely get workerId param
+  const workerId = (params.workerId as string) || '';
+
+  // Products state with string quantities
+  const [products, setProducts] = useState<Record<string, string>>({
     'गोल्ड 5 (Hole Milk)': '0',
     'गोल्ड 1': '0',
     'गोल्ड 500': '0',
@@ -21,16 +29,59 @@ const MorningStockScreen = () => {
     'चाय स्पेशल': '0',
   });
 
+  // Handle input changes for each product quantity
   const handleChange = (name: string, value: string) => {
-    setProducts(prev => ({ ...prev, [name]: value }));
+    setProducts((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
   };
 
+  // Calculate total stock as number sum from string quantities
+  const totalStock = Object.values(products).reduce(
+    (sum, val) => sum + (parseFloat(val) || 0),
+    0
+  );
+
+  // Generates a pretty summary string for the alert
+  const getProductSummary = () => {
+    const summaryArr = Object.entries(products)
+      .filter(([_, qty]) => Number(qty) > 0)
+      .map(([name, qty]) => `• ${name}: ${qty} Packets`);
+    return summaryArr.length
+      ? summaryArr.join('\n')
+      : 'No packets entered for any product';
+  };
+
+  // On Start Deliveries button pressed, show a confirmation alert
   const handleStartDeliveries = () => {
-    let summary = Object.entries(products).map(([key, val]) => `${key}: ${val} Packets`).join('\n');
-    alert(summary);
-  };
+    if (totalStock === 0) {
+      return; // disable if no products
+    }
 
-  const totalStock = Object.values(products).reduce((sum, val) => sum + (parseFloat(val) || 0), 0);
+    // Show Alert
+    Alert.alert(
+      'Confirm Morning Stock',
+      `Are you sure you want to proceed with these products?\n\n${getProductSummary()}`,
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Yes, Proceed',
+          style: 'default',
+          onPress: () => {
+            router.push(
+  `/CustomerDeliveryScreen?workerId=${workerId}&products=${encodeURIComponent(JSON.stringify(products))}` as any
+);
+
+          },
+        },
+      ],
+      { cancelable: false }
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -96,27 +147,75 @@ const MorningStockScreen = () => {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F5F9FC' },
   scrollContent: { padding: 16, paddingBottom: 80 },
-  welcomeContainer: { backgroundColor: '#EFF6FF', borderRadius: 8, padding: 10, marginBottom: 16, alignSelf: 'center' },
-  welcomeText: { fontSize: 16, fontWeight: '600', color: '#1E40AF', textAlign: 'center' },
+  welcomeContainer: {
+    backgroundColor: '#EFF6FF',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 16,
+    alignSelf: 'center',
+  },
+  welcomeText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1E40AF',
+    textAlign: 'center',
+  },
   headerContainer: { marginBottom: 16 },
   header: { fontSize: 22, fontWeight: '700', color: '#1A365D', marginBottom: 6 },
   headerDivider: { height: 3, width: 50, backgroundColor: '#4299E1', borderRadius: 3 },
-  card: { backgroundColor: '#FFFFFF', borderRadius: 10, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: '#E2E8F0' },
+  card: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
   cardHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
   cardTitle: { fontSize: 16, fontWeight: '600', color: '#2D3748' },
   inputContainer: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
-  input: { backgroundColor: '#F8FAFC', borderRadius: 6, paddingVertical: 6, paddingHorizontal: 10, width: 100, textAlign: 'center', fontSize: 16, color: '#1A365D', borderWidth: 1, borderColor: '#CBD5E0', fontWeight: '600' },
-  summaryCard: { backgroundColor: '#FFFFFF', borderRadius: 10, padding: 12, marginTop: 12, borderWidth: 1, borderColor: '#E2E8F0' },
+  input: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    width: 100,
+    textAlign: 'center',
+    fontSize: 16,
+    color: '#1A365D',
+    borderWidth: 1,
+    borderColor: '#CBD5E0',
+    fontWeight: '600',
+  },
+  summaryCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    padding: 12,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
   summaryTitle: { fontSize: 18, fontWeight: '700', color: '#1A365D', marginBottom: 10 },
-  summaryRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
   summaryLabel: { fontSize: 14, color: '#4A5568', fontWeight: '500' },
   summaryValue: { fontSize: 14, color: '#2D3748', fontWeight: '600' },
   summaryDivider: { height: 1, backgroundColor: '#E2E8F0', marginVertical: 8 },
   summaryTotalLabel: { fontSize: 16, fontWeight: '600', color: '#1A365D' },
   summaryTotalValue: { fontSize: 16, fontWeight: '700', color: '#2B6CB0' },
-  button: { backgroundColor: '#4299E1', borderRadius: 10, paddingVertical: 14, alignItems: 'center', marginHorizontal: 16, marginBottom: 20 },
+  button: {
+    backgroundColor: '#4299E1',
+    borderRadius: 10,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginHorizontal: 16,
+    marginBottom: 20,
+  },
   buttonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700', letterSpacing: 0.5 },
-  buttonDisabled: { backgroundColor: '#A0AEC0' }, // disabled button style
+  buttonDisabled: { backgroundColor: '#A0AEC0' },
 });
 
 export default MorningStockScreen;

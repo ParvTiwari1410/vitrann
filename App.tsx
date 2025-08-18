@@ -1,15 +1,15 @@
-// App.tsx
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import React from 'react';
 import 'react-native-gesture-handler';
+import CustomerDeliveryScreen from './app/CustomerDeliveryScreen';
 import MorningStock from './app/MorningStockScreen';
 import LoginScreen from './screens/LoginScreen';
 
-// 1. Define exact route names
 export type RootStackParamList = {
   LoginScreen: undefined;
-  MorningStock: undefined; // Must match EXACTLY
+  MorningStock: { workerId: string };
+  CustomerDelivery: { workerId: string; products: Record<string, number> };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -21,14 +21,9 @@ export default function App() {
         initialRouteName="LoginScreen"
         screenOptions={{ headerShown: false }}
       >
-        <Stack.Screen 
-          name="LoginScreen" // Must match EXACTLY
-          component={LoginScreen} 
-        />
-        <Stack.Screen 
-          name="MorningStock" // Must match EXACTLY
-          component={MorningStock}
-        />
+        <Stack.Screen name="LoginScreen" component={LoginScreen} />
+        <Stack.Screen name="MorningStock" component={MorningStock} />
+        <Stack.Screen name="CustomerDelivery" component={CustomerDeliveryScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

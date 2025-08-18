@@ -1,4 +1,4 @@
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
   Alert,
@@ -26,18 +26,19 @@ type CustomerType = {
 
 export default function CustomerDeliveryScreen() {
   const params = useLocalSearchParams();
+  const router = useRouter();
 
-  // Products entered in MorningStockScreen, example: { 'गोल्ड 5 (Hole Milk)': '5', ... }
-  const productsObj: Record<string, string> = params.products
-    ? JSON.parse(params.products as string)
-    : {};
+  let productsObj: Record<string, string> = {};
+  try {
+    productsObj = params.products ? JSON.parse(params.products as string) : {};
+  } catch {
+    productsObj = {};
+  }
 
-  // Filter products to only those with stock > 0
   const dynamicProductOptions = Object.entries(productsObj)
     .filter(([_, qty]) => Number(qty) > 0)
     .map(([product]) => product);
 
-  // Demo customers
   const DEMO_CUSTOMERS: CustomerType[] = [
     {
       id: '1',
@@ -66,13 +67,15 @@ export default function CustomerDeliveryScreen() {
 
   const customer = customers[selectedIdx];
 
-  // Calculate total delivered quantity for a product across all customers
   const getTotalDelivered = (productName: string): number => {
-    return customers.reduce((total, cust) =>
-      total +
-      cust.deliveredItems
-        .filter((item) => item.name === productName)
-        .reduce((subTotal, item) => subTotal + item.qty, 0), 0);
+    return customers.reduce(
+      (total, cust) =>
+        total +
+        cust.deliveredItems
+          .filter((item) => item.name === productName)
+          .reduce((subTotal, item) => subTotal + item.qty, 0),
+      0
+    );
   };
 
   const handleAddItem = () => {
@@ -178,18 +181,17 @@ export default function CustomerDeliveryScreen() {
       setNewProduct('');
       setNewQty('');
     } else {
-      Alert.alert('Info', 'All customers delivered!');
+      const productsStr = encodeURIComponent(JSON.stringify(productsObj));
+      router.push(`/ReturnedStocksScreen?products=${productsStr}`);
     }
   };
 
-  // Filter delivered items to only those from valid products
   const filteredDeliveredItems = customer.deliveredItems.filter((item) =>
     dynamicProductOptions.includes(item.name)
   );
 
   return (
     <View style={styles.container}>
-      {/* Tabs */}
       <View style={styles.tabs}>
         {customers.map((c, idx) => (
           <TouchableOpacity
@@ -203,14 +205,12 @@ export default function CustomerDeliveryScreen() {
           </TouchableOpacity>
         ))}
       </View>
-      {/* Customer Card */}
       <ScrollView contentContainerStyle={styles.card}>
         <Text style={styles.name}>
           {customer.name} ({customer.type})
         </Text>
         <Text style={styles.address}>{customer.address}</Text>
 
-        {/* Delivered Items */}
         <View style={styles.subsection}>
           <Text style={styles.sectionTitle}>Delivered Items</Text>
           {filteredDeliveredItems.length > 0 ? (
@@ -232,7 +232,7 @@ export default function CustomerDeliveryScreen() {
             <Text style={styles.deliveredProductName}>No delivered items yet.</Text>
           )}
         </View>
-        {/* Add Item */}
+
         <View style={styles.subsection}>
           <Text style={styles.sectionTitle}>Add Item</Text>
           <View style={styles.productList}>
@@ -276,7 +276,7 @@ export default function CustomerDeliveryScreen() {
             </TouchableOpacity>
           </View>
         </View>
-        {/* Collect Payment */}
+
         <View style={styles.subsection}>
           <Text style={styles.sectionTitle}>Collect Payment</Text>
           <View style={styles.row}>
@@ -306,13 +306,14 @@ export default function CustomerDeliveryScreen() {
           )}
         </View>
       </ScrollView>
-      {/* Confirm & Next Button */}
+
       <TouchableOpacity style={styles.confirmButton} onPress={handleConfirmNext}>
         <Text style={styles.confirmButtonText}>Confirm & Next</Text>
       </TouchableOpacity>
     </View>
   );
 }
+
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8F9FA' },
@@ -398,7 +399,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
     fontWeight: '600',
   },
-  removeItemButton: { 
+  removeItemButton: {
     backgroundColor: '#EF4444',
     borderRadius: 6,
     paddingHorizontal: 10,

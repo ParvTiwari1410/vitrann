@@ -1,0 +1,242 @@
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useMemo, useState } from 'react';
+import {
+    FlatList,
+    KeyboardAvoidingView,
+    Platform,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
+} from 'react-native';
+
+type ProductItem = {
+  name: string;
+  unsold: string;
+};
+
+export default function ReturnedStocksScreen() {
+  const params = useLocalSearchParams();
+  const router = useRouter();
+
+  const productsObj: Record<string, string> = params.products
+    ? JSON.parse(params.products as string)
+    : {};
+
+  const morningProducts: ProductItem[] = Object.entries(productsObj)
+    .filter(([_, qty]) => Number(qty) > 0)
+    .map(([name]) => ({
+      name,
+      unsold: '',
+    }));
+
+  const [products, setProducts] = useState<ProductItem[]>(morningProducts);
+
+  const onChangeUnsold = (name: string, text: string) => {
+    const filteredText = text.replace(/[^0-9]/g, '');
+    setProducts((prev) =>
+      prev.map((p) => (p.name === name ? { ...p, unsold: filteredText } : p))
+    );
+  };
+
+  // Calculate total returned packets
+  const totalReturned = useMemo(() => {
+    return products.reduce((sum, p) => sum + (p.unsold ? Number(p.unsold) : 0), 0);
+  }, [products]);
+
+  const handleSummary = () => {
+    router.back();
+  };
+
+  return (
+    <KeyboardAvoidingView
+      style={styles.wrapper}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
+      {/* Cheerful message */}
+      <View style={styles.cheerBox}>
+        <Text style={styles.cheerIcon}>✅</Text>
+        <Text style={styles.cheerText}>Deliveries completed! Great job 👍</Text>
+      </View>
+
+      <View style={styles.card}>
+        <Text style={styles.heading}>Returned Stock</Text>
+        <View style={styles.divider} />
+        <FlatList
+          data={products}
+          keyExtractor={(item) => item.name}
+          renderItem={({ item }) => (
+            <View style={styles.productBox}>
+              <Text style={styles.productLabel} numberOfLines={1}>
+                {item.name}
+              </Text>
+              <TextInput
+                style={[
+                  styles.input,
+                  item.unsold && Number(item.unsold) > 0 ? styles.inputHighlight : null,
+                ]}
+                value={item.unsold}
+                onChangeText={(text) => onChangeUnsold(item.name, text)}
+                placeholder="0"
+                keyboardType="numeric"
+                maxLength={5}
+                placeholderTextColor="#8E96A8"
+                selectionColor="#297BF6"
+              />
+            </View>
+          )}
+          ListEmptyComponent={
+            <Text style={styles.empty}>No products found.</Text>
+          }
+          contentContainerStyle={{ paddingTop: 12 }}
+          keyboardShouldPersistTaps="handled"
+        />
+        <View style={styles.totalContainer}>
+          <Text style={styles.totalText}>
+            Total: {totalReturned} packet{totalReturned !== 1 ? 's' : ''} returned
+          </Text>
+        </View>
+
+        <TouchableOpacity style={styles.floatingButton} onPress={handleSummary} activeOpacity={0.8}>
+          <Text style={styles.floatingButtonText}>📊 Go to Summary</Text>
+        </TouchableOpacity>
+      </View>
+    </KeyboardAvoidingView>
+  );
+}
+
+const styles = StyleSheet.create({
+  wrapper: {
+    flex: 1,
+    backgroundColor: '#F5F6F9',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  cheerBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFBE8',
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 18,
+    marginBottom: 20,
+    shadowColor: '#FFD700',
+    shadowOpacity: 0.09,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  cheerIcon: {
+    fontSize: 24,
+    marginRight: 8,
+  },
+  cheerText: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#BA7E25',
+  },
+  card: {
+    minWidth: 320,
+    width: 360,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 24,
+    paddingBottom: 36,
+    alignItems: 'stretch',
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 10 },
+  },
+  heading: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#232B3A',
+    paddingLeft: 6,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#E4E7EB',
+    marginVertical: 16,
+  },
+  productBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 12,
+    backgroundColor: '#E6E8EF',
+    marginBottom: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 15,
+    justifyContent: 'space-between',
+    shadowColor: '#90A4AE',
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+  },
+  productLabel: {
+    flex: 1,
+    fontSize: 18,
+    color: '#1C2833',
+    fontWeight: '600',
+  },
+  input: {
+    minWidth: 56,
+    height: 42,
+    backgroundColor: '#E6E8EF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    textAlign: 'center',
+    fontSize: 20,
+    color: '#1B2443',
+    fontWeight: '700',
+    marginLeft: 16,
+    marginRight: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 0,
+  },
+  inputHighlight: {
+    backgroundColor: '#FDE8D0',
+    borderColor: '#F39C12',
+    color: '#B45B00',
+  },
+  totalContainer: {
+    marginTop: 10,
+    marginBottom: 18,
+    paddingHorizontal: 8,
+    alignItems: 'flex-end',
+  },
+  totalText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#B45B00',
+  },
+  empty: {
+    color: '#8B9BB7',
+    textAlign: 'center',
+    marginVertical: 28,
+    fontSize: 16,
+  },
+  floatingButton: {
+    backgroundColor: '#297BF6',
+    borderRadius: 28,
+    paddingVertical: 14,
+    paddingHorizontal: 28,
+    alignItems: 'center',
+    alignSelf: 'center',
+    elevation: 8,
+    shadowColor: '#4D90FE',
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 6 },
+  },
+  floatingButtonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+  },
+});

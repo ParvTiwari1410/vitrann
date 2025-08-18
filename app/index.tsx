@@ -79,7 +79,7 @@ export default function Index() {
               secureTextEntry
               editable={!isLoading}
             
-              maxLength={6}
+              maxLength={10}
             />
 
             <TouchableOpacity

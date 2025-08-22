@@ -1,14 +1,14 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useMemo, useState } from 'react';
 import {
-    FlatList,
-    KeyboardAvoidingView,
-    Platform,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  FlatList,
+  KeyboardAvoidingView,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 
 type ProductItem = {
@@ -45,9 +45,19 @@ export default function ReturnedStocksScreen() {
     return products.reduce((sum, p) => sum + (p.unsold ? Number(p.unsold) : 0), 0);
   }, [products]);
 
-  const handleSummary = () => {
-    router.back();
-  };
+const handleSummary = () => {
+  const returnedObj = Object.fromEntries(products.map(p => [p.name, p.unsold || "0"]));
+  router.push({
+    pathname: '/DailySummaryScreen',
+    params: {
+      sent: params.sent,
+      delivered: params.delivered,
+      payments: params.payments,
+      returned: JSON.stringify(returnedObj)
+    }
+  });
+};
+
 
   return (
     <KeyboardAvoidingView

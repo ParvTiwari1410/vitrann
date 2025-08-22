@@ -30,7 +30,7 @@ export default function CustomerDeliveryScreen() {
 
   let productsObj: Record<string, string> = {};
   try {
-    productsObj = params.products ? JSON.parse(params.products as string) : {};
+    productsObj = params.sent ? JSON.parse(params.sent as string) : {};
   } catch {
     productsObj = {};
   }
@@ -77,6 +77,23 @@ export default function CustomerDeliveryScreen() {
       0
     );
   };
+
+  const deliveredObj: Record<string, number> = {};
+  dynamicProductOptions.forEach((product) => {
+    deliveredObj[product] = customers.reduce(
+      (sum, cust) =>
+        sum +
+        cust.deliveredItems
+          .filter((item) => item.name === product)
+          .reduce((subSum, item) => subSum + item.qty, 0),
+      0
+    );
+  });
+
+  const totalPayments = customers.reduce(
+    (sum, cust) => sum + cust.paymentReceived,
+    0
+  );
 
   const handleAddItem = () => {
     if (!newProduct || !newQty) {
@@ -182,7 +199,15 @@ export default function CustomerDeliveryScreen() {
       setNewQty('');
     } else {
       const productsStr = encodeURIComponent(JSON.stringify(productsObj));
-      router.push(`/ReturnedStocksScreen?products=${productsStr}`);
+      router.push({
+        pathname: '/ReturnedStocksScreen',
+        params: {
+          sent: params.sent,
+          delivered: JSON.stringify(deliveredObj),
+          payments: totalPayments,
+          products: productsStr,
+        },
+      });
     }
   };
 
@@ -216,9 +241,11 @@ export default function CustomerDeliveryScreen() {
           {filteredDeliveredItems.length > 0 ? (
             filteredDeliveredItems.map((item, idx) => (
               <View key={idx} style={styles.deliveredItemRow}>
-                <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
-                  <Text style={styles.deliveredProductName}>{item.name}</Text>
-                  <Text style={styles.deliveredProductQty}>• {item.qty} Pkt</Text>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={styles.deliveredProductName} numberOfLines={2}>
+                    {item.name}
+                  </Text>
+                  <Text style={styles.deliveredProductQty}>{item.qty} Pkt</Text>
                 </View>
                 <TouchableOpacity
                   style={styles.removeItemButton}
@@ -314,7 +341,6 @@ export default function CustomerDeliveryScreen() {
   );
 }
 
-
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8F9FA' },
   tabs: {
@@ -358,16 +384,18 @@ const styles = StyleSheet.create({
     borderColor: '#DBEAFE',
   },
   deliveredProductName: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '700',
     color: '#19376D',
-    marginRight: 10,
+    marginBottom: 2,
+    flexShrink: 1,
+    flexWrap: 'wrap',
   },
   deliveredProductQty: {
-    fontSize: 17,
-    fontWeight: '600',
-    color: '#2563EB',
-    marginLeft: 5,
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#297BF6',
+    marginBottom: 2,
   },
   productList: {
     flexDirection: 'column',
@@ -467,3 +495,5 @@ const styles = StyleSheet.create({
   },
   confirmButtonText: { color: '#fff', fontWeight: '700', fontSize: 17, letterSpacing: 0.3 },
 });
+
+

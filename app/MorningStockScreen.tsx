@@ -1,5 +1,6 @@
+import { MaterialCommunityIcons } from '@expo/vector-icons'; // For the icon
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Alert,
   ScrollView,
@@ -13,14 +14,12 @@ import {
 const MorningStockScreen = () => {
   const params = useLocalSearchParams();
   const router = useRouter();
-
   // Safely get workerId param
   const workerId = (params.workerId as string) || '';
-
   // Products state with string quantities
   const [products, setProducts] = useState<Record<string, string>>({
-    'गोल्ड 5 (Hole Milk)': '0',
-    'गोल्ड 1': '0',
+    'गोल्ड 1 ': '0',
+    'गोल्ड 5 (Whole Milk)': '0',
     'गोल्ड 500': '0',
     'स्टैंडर्ड काऊ': '0',
     'स्टैंडर्ड बच्चा': '0',
@@ -29,6 +28,19 @@ const MorningStockScreen = () => {
     'चाय स्पेशल': '0',
   });
 
+  // Add current date
+  const [currentDate, setCurrentDate] = useState('');
+  useEffect(() => {
+    const now = new Date();
+    const options: Intl.DateTimeFormatOptions = {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    };
+    setCurrentDate(now.toLocaleDateString(undefined, options));
+  }, []);
+
   // Handle input changes for each product quantity
   const handleChange = (name: string, value: string) => {
     setProducts((prev) => ({
@@ -36,13 +48,11 @@ const MorningStockScreen = () => {
       [name]: value,
     }));
   };
-
   // Calculate total stock as number sum from string quantities
   const totalStock = Object.values(products).reduce(
     (sum, val) => sum + (parseFloat(val) || 0),
     0
   );
-
   // Generates a pretty summary string for the alert
   const getProductSummary = () => {
     const summaryArr = Object.entries(products)
@@ -52,13 +62,11 @@ const MorningStockScreen = () => {
       ? summaryArr.join('\n')
       : 'No packets entered for any product';
   };
-
   // On Start Deliveries button pressed, show a confirmation alert
   const handleStartDeliveries = () => {
     if (totalStock === 0) {
       return; // disable if no products
     }
-
     // Show Alert
     Alert.alert(
       'Confirm Morning Stock',
@@ -72,17 +80,19 @@ const MorningStockScreen = () => {
           text: 'Yes, Proceed',
           style: 'default',
           onPress: () => {
-            router.push(
-  `/CustomerDeliveryScreen?workerId=${workerId}&products=${encodeURIComponent(JSON.stringify(products))}` as any
-);
-
+            router.push({
+              pathname: '/CustomerDeliveryScreen',
+              params: {
+                workerId,
+                sent: JSON.stringify(products),
+              },
+            });
           },
         },
       ],
       { cancelable: false }
     );
   };
-
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -90,13 +100,22 @@ const MorningStockScreen = () => {
         <View style={styles.welcomeContainer}>
           <Text style={styles.welcomeText}>Welcome, {workerId}!</Text>
         </View>
+        {/* Date with icon */}
+        <View style={styles.dateContainer}>
+          <MaterialCommunityIcons
+            name="calendar-month"
+            size={18}
+            color="#1E40AF"
+            style={{ marginRight: 4 }}
+          />
+          <Text style={styles.dateText}>{currentDate}</Text>
+        </View>
 
         {/* Header */}
         <View style={styles.headerContainer}>
           <Text style={styles.header}>Morning Stock</Text>
           <View style={styles.headerDivider} />
         </View>
-
         {/* Product Cards */}
         {Object.entries(products).map(([name, value]) => (
           <View key={name} style={styles.card}>
@@ -114,7 +133,6 @@ const MorningStockScreen = () => {
             </View>
           </View>
         ))}
-
         {/* Summary */}
         <View style={styles.summaryCard}>
           <Text style={styles.summaryTitle}>Stock Summary</Text>
@@ -131,7 +149,6 @@ const MorningStockScreen = () => {
           </View>
         </View>
       </ScrollView>
-
       <TouchableOpacity
         style={[styles.button, totalStock === 0 && styles.buttonDisabled]}
         onPress={handleStartDeliveries}
@@ -151,14 +168,27 @@ const styles = StyleSheet.create({
     backgroundColor: '#EFF6FF',
     borderRadius: 8,
     padding: 10,
-    marginBottom: 16,
+    marginBottom: 4,
     alignSelf: 'center',
   },
   welcomeText: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '600',
     color: '#1E40AF',
     textAlign: 'center',
+  },
+  dateContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-end',
+    marginBottom: 12,
+  },
+  dateText: {
+    fontSize: 16,
+    color: '#4C51BF',
+    fontWeight: '700',
+    fontStyle: 'italic',
+    letterSpacing: 0.4,
   },
   headerContainer: { marginBottom: 16 },
   header: { fontSize: 22, fontWeight: '700', color: '#1A365D', marginBottom: 6 },

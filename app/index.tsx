@@ -37,7 +37,8 @@ export default function Index() {
     try {
       // Simulate API call
       await new Promise(resolve => setTimeout(resolve, 1000));
-      router.push('/MorningStockScreen'); // Navigate to MorningStockScreen
+      // Pass workerId as query parameter to MorningStockScreen
+      router.push(`/MorningStockScreen?workerId=${encodeURIComponent(workerId.trim())}`);
     } catch (error) {
       Alert.alert('Login Failed', 'Please check your credentials and try again');
     } finally {
@@ -65,7 +66,6 @@ export default function Index() {
               onChangeText={text => setWorkerId(text.replace(/[^a-zA-Z0-9]/g, ''))}
               style={styles.input}
               autoCapitalize="none"
-          
               autoCorrect={false}
               editable={!isLoading}
             />
@@ -78,7 +78,6 @@ export default function Index() {
               style={styles.input}
               secureTextEntry
               editable={!isLoading}
-            
               maxLength={10}
             />
 

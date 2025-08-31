@@ -42,15 +42,15 @@ const PRODUCT_PRICES: Record<string, number> = {
 }
 
 const PRODUCT_ICONS: Record<string, string | any> = {
-  "गोल्ड 1": require("../assets/images/Gold1.png"),
-  "गोल्ड 500": require("../assets/images/Sanchi Gold3.png"),
+  "गोल्ड 1": require("../assets/images/milk-carton.png"),
+  "गोल्ड 500": require("../assets/images/milk-box.png"),
   "गोल्ड 5 (Whole Milk)": require("../assets/images/Whole Milk.png"), // Using custom milk carton image
   स्टेण्डर्ड: require("../assets/images/Standard.png"),
-  डीटीएम: require("../assets/images/DTM.png"),
-  काऊ: require("../assets/images/Cow1.png"),
+  डीटीएम: require("../assets/images/double toned.png"),
+  काऊ: require("../assets/images/cow.png"),
   बच्चा: require("../assets/images/Bacha.png"),
-  चाह: require("../assets/images/Chah.png"),
-  "चाय स्पेशल": require("../assets/images/ChaiSpecial1.png"),
+  चाह: require("../assets/images/tea.png"),
+  "चाय स्पेशल": require("../assets/images/chai-special.png"),
   Delivery: "🚚",
 }
 

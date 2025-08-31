@@ -6,7 +6,6 @@ import { StatusBar } from "expo-status-bar"
 import { useEffect, useState } from "react"
 import {
   Alert,
-  Keyboard,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -38,7 +37,6 @@ const MorningStockScreen = () => {
   })
 
   const [currentDate, setCurrentDate] = useState("")
-  const [keyboardVisible, setKeyboardVisible] = useState(false) // 🔹 new
 
   useEffect(() => {
     const now = new Date()
@@ -49,17 +47,6 @@ const MorningStockScreen = () => {
       day: "numeric",
     }
     setCurrentDate(now.toLocaleDateString(undefined, options))
-  }, [])
-
-  // 🔹 Keyboard listeners to prevent layout jump when returning to the app
-  useEffect(() => {
-    const showSub = Keyboard.addListener("keyboardDidShow", () => setKeyboardVisible(true))
-    const hideSub = Keyboard.addListener("keyboardDidHide", () => setKeyboardVisible(false))
-
-    return () => {
-      showSub.remove()
-      hideSub.remove()
-    }
   }, [])
 
   const handleChange = (name: string, value: string) => {
@@ -111,70 +98,67 @@ const MorningStockScreen = () => {
     >
       <StatusBar style="dark" backgroundColor="#F5F9FC" translucent={false} />
 
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : "height"} // Simplified keyboard behavior
-      >
-        {/* 🔹 Top fixed section */}
-        <View style={styles.topSection}>
-          <View style={styles.welcomeContainer}>
-            <Text style={styles.welcomeText}>Welcome, {workerId}!</Text>
-          </View>
-
-          <View style={styles.dateContainer}>
-            <MaterialCommunityIcons name="calendar-month" size={18} color="#1E40AF" style={{ marginRight: 4 }} />
-            <Text style={styles.dateText}>{currentDate}</Text>
-          </View>
-
-          <View style={styles.headerContainer}>
-            <Text style={styles.header}>Morning Stock</Text>
-            <View style={styles.headerDivider} />
-          </View>
-        </View>
-
-        {/* 🔹 Middle scrollable content */}
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          {Object.entries(products).map(([name, value]) => (
-            <View key={name} style={styles.card}>
-              <View style={styles.cardHeader}>
-                <Text style={styles.cardTitle}>{name}</Text>
-              </View>
-              <View style={styles.inputContainer}>
-                <TextInput
-                  style={styles.input}
-                  value={value}
-                  onChangeText={(val) => handleChange(name, val)}
-                  keyboardType="numeric"
-                  placeholder="0 Packets"
-                />
-              </View>
+      <View style={{ flex: 1 }}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+          {/* 🔹 Top fixed section (within scrollable area container) */}
+          <View style={styles.topSection}>
+            <View style={styles.welcomeContainer}>
+              <Text style={styles.welcomeText}>Welcome, {workerId}!</Text>
             </View>
-          ))}
 
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryTitle}>Stock Summary</Text>
+            <View style={styles.dateContainer}>
+              <MaterialCommunityIcons name="calendar-month" size={18} color="#1E40AF" style={{ marginRight: 4 }} />
+              <Text style={styles.dateText}>{currentDate}</Text>
+            </View>
+
+            <View style={styles.headerContainer}>
+              <Text style={styles.header}>Morning Stock</Text>
+              <View style={styles.headerDivider} />
+            </View>
+          </View>
+
+          {/* 🔹 Middle scrollable content */}
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={[styles.scrollContent, { paddingBottom: (insets.bottom || 0) + 120 }]}
+          >
             {Object.entries(products).map(([name, value]) => (
-              <View key={name} style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>{name}:</Text>
-                <Text style={styles.summaryValue}>{value} Packets</Text>
+              <View key={name} style={styles.card}>
+                <View style={styles.cardHeader}>
+                  <Text style={styles.cardTitle}>{name}</Text>
+                </View>
+                <View style={styles.inputContainer}>
+                  <TextInput
+                    style={styles.input}
+                    value={value}
+                    onChangeText={(val) => handleChange(name, val)}
+                    keyboardType="numeric"
+                    placeholder="0 Packets"
+                  />
+                </View>
               </View>
             ))}
-            <View style={styles.summaryDivider} />
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryTotalLabel}>Total Stock:</Text>
-              <Text style={styles.summaryTotalValue}>{totalStock} Packets</Text>
-            </View>
-          </View>
-        </ScrollView>
 
-        {/* 🔹 Bottom fixed button */}
-        <View style={[styles.bottomButtonContainer, { paddingBottom: insets.bottom + 20 }]}>
-          {" "}
-          {/* Use dynamic insets.bottom */}
+            <View style={styles.summaryCard}>
+              <Text style={styles.summaryTitle}>Stock Summary</Text>
+              {Object.entries(products).map(([name, value]) => (
+                <View key={name} style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>{name}:</Text>
+                  <Text style={styles.summaryValue}>{value} Packets</Text>
+                </View>
+              ))}
+              <View style={styles.summaryDivider} />
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryTotalLabel}>Total Stock:</Text>
+                <Text style={styles.summaryTotalValue}>{totalStock} Packets</Text>
+              </View>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+
+        {/* 🔹 Bottom fixed button (outside KAV, pinned to screen bottom) */}
+        <View style={[styles.bottomButtonContainer, { paddingBottom: insets.bottom + 20 }]} pointerEvents="box-none">
           <TouchableOpacity
             style={[styles.button, totalStock === 0 && styles.buttonDisabled]}
             onPress={handleStartDeliveries}
@@ -184,7 +168,7 @@ const MorningStockScreen = () => {
             <Text style={styles.buttonText}>Start Deliveries</Text>
           </TouchableOpacity>
         </View>
-      </KeyboardAvoidingView>
+      </View>
     </SafeAreaView>
   )
 }
@@ -289,6 +273,3 @@ const styles = StyleSheet.create({
 })
 
 export default MorningStockScreen
-
-
-

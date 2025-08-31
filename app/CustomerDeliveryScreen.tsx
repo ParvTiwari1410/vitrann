@@ -1,11 +1,10 @@
 "use client"
 
 import { useLocalSearchParams, useRouter } from "expo-router"
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import {
   Alert,
   Image,
-  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -107,25 +106,7 @@ export default function CustomerDeliveryScreen() {
   const [productQtys, setProductQtys] = useState<Record<string, string>>({})
   const [paymentModalVisible, setPaymentModalVisible] = useState(false)
   const [editingPayment, setEditingPayment] = useState("")
-  const [keyboardVisible, setKeyboardVisible] = useState(false)
   const [isEditingPayment, setIsEditingPayment] = useState(false)
-
-  useEffect(() => {
-    const showSub = Keyboard.addListener("keyboardDidShow", () => {
-      setKeyboardVisible(true)
-    })
-    const hideSub = Keyboard.addListener("keyboardDidHide", () => {
-      // Add a small delay to ensure keyboard is fully hidden before showing button
-      setTimeout(() => {
-        setKeyboardVisible(false)
-      }, 100)
-    })
-
-    return () => {
-      showSub.remove()
-      hideSub.remove()
-    }
-  }, [])
 
   const customer = customers[selectedIdx]
   const productsNotDelivered = dynamicProductOptions.filter(
@@ -161,10 +142,9 @@ export default function CustomerDeliveryScreen() {
       return total + price * item.qty
     }, 0)
 
-    const deliveryCharges = PRODUCT_PRICES["Delivery"] || 40
-    const total = itemsTotal + deliveryCharges
-    console.log("[v0] Items total:", itemsTotal, "Delivery charges:", deliveryCharges, "Final total:", total)
-    return total
+    // Removed the flat delivery charge from total calculation
+    console.log("[v0] Items total (no delivery charges):", itemsTotal)
+    return itemsTotal
   }
 
   const autoCalculatedPayment = calculateTotalPayment(customer.deliveredItems)
@@ -310,175 +290,178 @@ export default function CustomerDeliveryScreen() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#F8F9FA" }} edges={["top"]}>
       <StatusBar barStyle="dark-content" backgroundColor="#F8F9FA" />
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
-        <View style={{ flex: 1, backgroundColor: "#F8F9FA" }}>
-          <View style={styles.tabs}>
-            {customers.map((c, idx) => (
-              <TouchableOpacity
-                key={c.id}
-                style={[styles.tab, idx === selectedIdx && styles.activeTab]}
-                onPress={() => handleTabPress(idx)}
-              >
-                <Text style={idx === selectedIdx ? styles.activeTabText : styles.tabText}>{c.name}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-          <ScrollView
-            contentContainerStyle={{ paddingBottom: 140 }}
-            keyboardShouldPersistTaps="handled"
-            style={{ backgroundColor: "#F8F9FA" }}
-          >
-            <View style={styles.card}>
-              <Text style={styles.name}>
-                {customer.name} ({customer.type})
-              </Text>
-              <Text style={styles.address}>{customer.address}</Text>
+      <View style={{ flex: 1, backgroundColor: "#F8F9FA" }}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+          <View style={{ flex: 1, backgroundColor: "#F8F9FA" }}>
+            <View style={styles.tabs}>
+              {customers.map((c, idx) => (
+                <TouchableOpacity
+                  key={c.id}
+                  style={[styles.tab, idx === selectedIdx && styles.activeTab]}
+                  onPress={() => handleTabPress(idx)}
+                >
+                  <Text style={idx === selectedIdx ? styles.activeTabText : styles.tabText}>{c.name}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
 
-              <View style={styles.subsection}>
-                <Text style={styles.sectionTitle}>Delivered Items</Text>
-                {filteredDeliveredItems.length > 0 ? (
-                  filteredDeliveredItems.map((item, idx) => (
-                    <View key={idx} style={styles.deliveredItemRow}>
-                      <View style={{ flex: 1, minWidth: 0 }}>
-                        <View style={styles.productNameWithIcon}>
-                          <ProductIcon productName={item.name} />
-                          <Text style={styles.deliveredProductName} numberOfLines={2}>
-                            {item.name}
-                          </Text>
-                        </View>
-                        <Text style={styles.deliveredProductQty}>{item.qty} Pkt</Text>
-                      </View>
-                      <TouchableOpacity style={styles.removeItemButton} onPress={() => handleRemoveItem(idx)}>
-                        <Text style={styles.removeItemText}>Remove</Text>
-                      </TouchableOpacity>
-                    </View>
-                  ))
-                ) : (
-                  <Text style={styles.deliveredProductName}>No delivered items yet.</Text>
-                )}
-              </View>
+            <ScrollView
+              contentContainerStyle={{ paddingBottom: 140 }}
+              keyboardShouldPersistTaps="handled"
+              style={{ backgroundColor: "#F8F9FA" }}
+            >
+              <View style={styles.card}>
+                <Text style={styles.name}>
+                  {customer.name} ({customer.type})
+                </Text>
+                <Text style={styles.address}>{customer.address}</Text>
 
-              <View style={styles.subsection}>
-                <Text style={styles.sectionTitle}>Add Item</Text>
-                {productsNotDelivered.length > 0 ? (
-                  productsNotDelivered.map((option) => {
-                    const availableQty = getAvailableQty(option)
-                    const currentQty = productQtys[option] || ""
-                    const isValid = isQuantityValid(option, currentQty)
-                    const hasValue = currentQty && Number(currentQty) > 0
-                    const exceedsStock = hasValue && Number(currentQty) > availableQty
-
-                    return (
-                      <View key={option} style={styles.productCard}>
-                        <View style={styles.productNameWithIcon}>
-                          <ProductIcon productName={option} />
-                          <View style={{ flex: 1 }}>
-                            <Text style={styles.productName}>{option}</Text>
-                            <Text style={styles.productAvailable}>Available: {availableQty}</Text>
-                          </View>
-                        </View>
-                        <View style={styles.row}>
-                          <TextInput
-                            style={[styles.input, { flex: 1 }, exceedsStock && styles.inputError]}
-                            value={currentQty}
-                            placeholder="Qty"
-                            onChangeText={(qty) => {
-                              const numQty = Number(qty)
-                              if (qty === "" || (numQty >= 0 && numQty <= availableQty)) {
-                                setProductQtys((q) => ({ ...q, [option]: qty }))
-                              }
-                            }}
-                            keyboardType="numeric"
-                            maxLength={availableQty.toString().length + 1}
-                          />
-                          <TouchableOpacity
-                            style={[styles.addButton, (!hasValue || !isValid) && styles.addButtonDisabled]}
-                            onPress={() => handleAddItem(option)}
-                            disabled={!hasValue || !isValid}
-                          >
-                            <Text style={styles.addButtonText}>Add</Text>
-                          </TouchableOpacity>
-                        </View>
-                        {exceedsStock && <Text style={styles.errorText}>Maximum {availableQty} packets available</Text>}
-                      </View>
-                    )
-                  })
-                ) : (
-                  <Text>No available products to add.</Text>
-                )}
-              </View>
-
-              {customer.type === "B2B" && (
                 <View style={styles.subsection}>
-                  <Text style={styles.sectionTitle}>Collect Payment</Text>
-                  <View style={styles.paymentContainer}>
-                    <View style={styles.paymentAmountContainer}>
-                      <Text style={styles.paymentLabel}>Total Amount:</Text>
-                      <Text style={styles.paymentAmount}>₹{autoCalculatedPayment}</Text>
-                    </View>
-                    <View style={styles.paymentButtonsContainer}>
-                      <TouchableOpacity style={styles.confirmPaymentButton} onPress={handleConfirmPayment}>
-                        <Text style={styles.confirmPaymentButtonText}>Confirm</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={styles.editPaymentButton} onPress={handleEditPayment}>
-                        <Text style={styles.editPaymentButtonText}>Edit</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                  {customer.paymentReceived > 0 && (
-                    <Text style={styles.paymentReceivedText}>✓ ₹{customer.paymentReceived} confirmed</Text>
+                  <Text style={styles.sectionTitle}>Delivered Items</Text>
+                  {filteredDeliveredItems.length > 0 ? (
+                    filteredDeliveredItems.map((item, idx) => (
+                      <View key={idx} style={styles.deliveredItemRow}>
+                        <View style={{ flex: 1, minWidth: 0 }}>
+                          <View style={styles.productNameWithIcon}>
+                            <ProductIcon productName={item.name} />
+                            <Text style={styles.deliveredProductName} numberOfLines={2}>
+                              {item.name}
+                            </Text>
+                          </View>
+                          <Text style={styles.deliveredProductQty}>{item.qty} Pkt</Text>
+                        </View>
+                        <TouchableOpacity style={styles.removeItemButton} onPress={() => handleRemoveItem(idx)}>
+                          <Text style={styles.removeItemText}>Remove</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ))
+                  ) : (
+                    <Text style={styles.deliveredProductName}>No delivered items yet.</Text>
                   )}
                 </View>
-              )}
-            </View>
-          </ScrollView>
 
-          <Modal
-            visible={paymentModalVisible}
-            transparent
-            animationType="fade"
-            onRequestClose={() => setPaymentModalVisible(false)}
-          >
-            <View style={styles.modalOverlay}>
-              <View style={styles.modalContent}>
-                <Text style={styles.modalHeading}>
-                  {isEditingPayment ? "Edit Payment Amount" : "Confirm Payment Amount"}
-                </Text>
-                <TextInput
-                  style={styles.modalInput}
-                  value={editingPayment}
-                  onChangeText={setEditingPayment}
-                  keyboardType="numeric"
-                  placeholder="Enter amount"
-                  autoFocus
-                />
-                <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 16 }}>
-                  <TouchableOpacity
-                    style={styles.modalCancelBtn}
-                    onPress={() => {
-                      setPaymentModalVisible(false)
-                      setIsEditingPayment(false)
-                    }}
-                  >
-                    <Text style={{ color: "#2563EB", fontWeight: "bold" }}>Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.modalConfirmBtn} onPress={handleConfirmPayment}>
-                    <Text style={{ color: "#fff", fontWeight: "bold" }}>Confirm</Text>
-                  </TouchableOpacity>
+                <View style={styles.subsection}>
+                  <Text style={styles.sectionTitle}>Add Item</Text>
+                  {productsNotDelivered.length > 0 ? (
+                    productsNotDelivered.map((option) => {
+                      const availableQty = getAvailableQty(option)
+                      const currentQty = productQtys[option] || ""
+                      const isValid = isQuantityValid(option, currentQty)
+                      const hasValue = currentQty && Number(currentQty) > 0
+                      const exceedsStock = hasValue && Number(currentQty) > availableQty
+
+                      return (
+                        <View key={option} style={styles.productCard}>
+                          <View style={styles.productNameWithIcon}>
+                            <ProductIcon productName={option} />
+                            <View style={{ flex: 1 }}>
+                              <Text style={styles.productName}>{option}</Text>
+                              <Text style={styles.productAvailable}>Available: {availableQty}</Text>
+                            </View>
+                          </View>
+                          <View style={styles.row}>
+                            <TextInput
+                              style={[styles.input, { flex: 1 }, exceedsStock && styles.inputError]}
+                              value={currentQty}
+                              placeholder="Qty"
+                              onChangeText={(qty) => {
+                                const numQty = Number(qty)
+                                if (qty === "" || (numQty >= 0 && numQty <= availableQty)) {
+                                  setProductQtys((q) => ({ ...q, [option]: qty }))
+                                }
+                              }}
+                              keyboardType="numeric"
+                              maxLength={availableQty.toString().length + 1}
+                            />
+                            <TouchableOpacity
+                              style={[styles.addButton, (!hasValue || !isValid) && styles.addButtonDisabled]}
+                              onPress={() => handleAddItem(option)}
+                              disabled={!hasValue || !isValid}
+                            >
+                              <Text style={styles.addButtonText}>Add</Text>
+                            </TouchableOpacity>
+                          </View>
+                          {exceedsStock && (
+                            <Text style={styles.errorText}>Maximum {availableQty} packets available</Text>
+                          )}
+                        </View>
+                      )
+                    })
+                  ) : (
+                    <Text>No available products to add.</Text>
+                  )}
                 </View>
+
+                {customer.type === "B2B" && (
+                  <View style={styles.subsection}>
+                    <Text style={styles.sectionTitle}>Collect Payment</Text>
+                    <View style={styles.paymentContainer}>
+                      <View style={styles.paymentAmountContainer}>
+                        <Text style={styles.paymentLabel}>Total Amount:</Text>
+                        <Text style={styles.paymentAmount}>₹{autoCalculatedPayment}</Text>
+                      </View>
+                      <View style={styles.paymentButtonsContainer}>
+                        <TouchableOpacity style={styles.confirmPaymentButton} onPress={handleConfirmPayment}>
+                          <Text style={styles.confirmPaymentButtonText}>Confirm</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.editPaymentButton} onPress={handleEditPayment}>
+                          <Text style={styles.editPaymentButtonText}>Edit</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                    {customer.paymentReceived > 0 && (
+                      <Text style={styles.paymentReceivedText}>✓ ₹{customer.paymentReceived} confirmed</Text>
+                    )}
+                  </View>
+                )}
+              </View>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+
+        <Modal
+          visible={paymentModalVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setPaymentModalVisible(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalHeading}>
+                {isEditingPayment ? "Edit Payment Amount" : "Confirm Payment Amount"}
+              </Text>
+              <TextInput
+                style={styles.modalInput}
+                value={editingPayment}
+                onChangeText={setEditingPayment}
+                keyboardType="numeric"
+                placeholder="Enter amount"
+                autoFocus
+              />
+              <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 16 }}>
+                <TouchableOpacity
+                  style={styles.modalCancelBtn}
+                  onPress={() => {
+                    setPaymentModalVisible(false)
+                    setIsEditingPayment(false)
+                  }}
+                >
+                  <Text style={{ color: "#2563EB", fontWeight: "bold" }}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.modalConfirmBtn} onPress={handleConfirmPayment}>
+                  <Text style={{ color: "#fff", fontWeight: "bold" }}>Confirm</Text>
+                </TouchableOpacity>
               </View>
             </View>
-          </Modal>
+          </View>
+        </Modal>
 
-          {!keyboardVisible && (
-            <View style={[styles.fixedButtonContainer, { bottom: insets.bottom + 10 }]}>
-              <TouchableOpacity style={styles.confirmButton} onPress={handleConfirmNext}>
-                <Text style={styles.confirmButtonText}>Confirm & Next</Text>
-              </TouchableOpacity>
-            </View>
-          )}
+        <View style={[styles.fixedButtonContainer, { bottom: insets.bottom + 10 }]}>
+          <TouchableOpacity style={styles.confirmButton} onPress={handleConfirmNext}>
+            <Text style={styles.confirmButtonText}>Confirm & Next</Text>
+          </TouchableOpacity>
         </View>
-      </KeyboardAvoidingView>
+      </View>
     </SafeAreaView>
   )
 }
@@ -775,3 +758,5 @@ const styles = StyleSheet.create({
     resizeMode: "contain",
   },
 })
+
+

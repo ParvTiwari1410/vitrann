@@ -3,7 +3,6 @@
 import { useLocalSearchParams, useRouter } from "expo-router"
 import { useMemo, useState } from "react"
 import {
-  Alert,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -73,24 +72,11 @@ export default function CashDetailsScreen() {
     if (type === "note") tempNotes[label] = filtered
     else tempCoins[label] = filtered
 
-    const newTotal = computeTotal(tempNotes, tempCoins)
-    if (newTotal > maxCashAmount) {
-      Alert.alert("Limit exceeded", `Total cash cannot exceed ₹${maxCashAmount}.`)
-      return
-    }
-
     if (type === "note") setNoteCounts(tempNotes)
     else setCoinCounts(tempCoins)
   }
 
   const onNext = () => {
-    if (totalAmount > maxCashAmount) {
-      Alert.alert(
-        "Cash exceeds payment",
-        `Total cash ₹${totalAmount} cannot exceed the payment amount ₹${maxCashAmount}.`,
-      )
-      return
-    }
     const cashDetails = { noteCounts, coinCounts, totalAmount }
     router.push({
       pathname: "/ReturnedStocksScreen",
@@ -141,7 +127,6 @@ export default function CashDetailsScreen() {
           <View style={styles.totalContainer}>
             <Text style={styles.totalLabel}>Total Entered</Text>
             <Text style={styles.totalAmount}>{`₹${totalAmount}`}</Text>
-            <Text style={styles.totalAdvice}>{`Allowed: ₹${maxCashAmount}`}</Text>
           </View>
           <TouchableOpacity style={styles.nextButton} onPress={onNext} activeOpacity={0.85}>
             <Text style={styles.nextButtonText}>Next</Text>
@@ -265,13 +250,6 @@ const styles = StyleSheet.create({
     marginTop: 6,
     letterSpacing: -1,
   },
-  totalAdvice: {
-    marginTop: 8,
-    fontWeight: "600",
-    fontSize: 14,
-    color: "#64748b",
-    letterSpacing: -0.1,
-  },
   nextButton: {
     marginTop: 40,
     borderRadius: 16,
@@ -292,3 +270,4 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
 })
+

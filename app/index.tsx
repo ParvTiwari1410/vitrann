@@ -1,14 +1,14 @@
 "use client"
 
 // app/index.tsx
+
 import { Ionicons } from "@expo/vector-icons"
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { LinearGradient } from "expo-linear-gradient"
 import { useRouter } from "expo-router"
 import { useState } from "react"
-
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   SafeAreaView,
@@ -17,90 +17,181 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from "react-native"
+import Toast from 'react-native-toast-message'
+
+// Get API URL from environment variables
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000/api'
+
+// Interface for backend response
+interface WorkerLoginResponse {
+  success: boolean
+  message: string
+  token: string
+  userType: string
+  worker: {
+    workerId: number
+    firstName: string
+    lastName: string
+    phoneNumber: string
+    role: string
+    isActive: boolean
+  }
+}
 
 export default function Index() {
-  const [workerId, setWorkerId] = useState("")
+  const [phoneNumber, setPhoneNumber] = useState("")
   const [password, setPassword] = useState("")
   const [isLoading, setIsLoading] = useState(false)
-  const [showPassword, setShowPassword] = useState(false) // 👁️ toggle
+  const [showPassword, setShowPassword] = useState(false)
   const router = useRouter()
 
   const handleLogin = async () => {
-    if (!workerId.trim()) {
-      Alert.alert("Error", "Please enter your Worker ID")
-      return
+    // Validation
+    if (!phoneNumber.trim()) {
+      Toast.show({
+        type: 'error',
+        text1: 'Error',
+        text2: 'Please enter your phone number',
+      });
+      return;
     }
 
-    if (password.length !== 4) {
-      Alert.alert("Error", "PIN must be exactly 4 digits")
-      return
+    if (phoneNumber.length !== 10) {
+      Toast.show({
+        type: 'error',
+        text1: 'Error',
+        text2: 'Phone number must be 10 digits',
+      });
+      return;
     }
 
-    setIsLoading(true)
+    if (!password.trim()) {
+      Toast.show({
+        type: 'error',
+        text1: 'Error',
+        text2: 'Please enter your password',
+      });
+      return;
+    }
+
+    setIsLoading(true);
+
     try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1000))
-      // Pass workerId as query parameter to MorningStockScreen
-      router.push(`/MorningStockScreen?workerId=${encodeURIComponent(workerId.trim())}`)
+      const response = await fetch(`${API_BASE_URL}/auth/worker-login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({
+          phoneNumber: phoneNumber.trim(),
+          password: password,
+        }),
+      });
+
+      const data: WorkerLoginResponse = await response.json();
+
+      if (data.success === true && data.token && data.worker) {
+        // Store authentication data
+        await AsyncStorage.setItem('authToken', data.token);
+        await AsyncStorage.setItem('userType', data.userType);
+        await AsyncStorage.setItem('workerId', data.worker.workerId.toString());
+        await AsyncStorage.setItem('workerName', `${data.worker.firstName} ${data.worker.lastName}`);
+
+        Toast.show({
+          type: 'success',
+          text1: 'Login Successful',
+          text2: `Welcome, ${data.worker.firstName}!`,
+        });
+
+        // Navigate to MorningStockScreen after a short delay
+        setTimeout(() => {
+          router.push(`/MorningStockScreen?workerId=${data.worker.workerId}`);
+        }, 1200);
+
+      } else {
+        Toast.show({
+          type: 'error',
+          text1: 'Login Failed',
+          text2: data.message || 'Invalid phone number or password',
+        });
+      }
+
     } catch (error) {
-      Alert.alert("Login Failed", "Please check your credentials and try again")
+      Toast.show({
+        type: 'error',
+        text1: 'Connection Error',
+        text2: 'Unable to connect to server. Please check your internet connection.',
+      });
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
   }
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor="#F8F9FA" />
-      <LinearGradient colors={["#F8F9FA", "#F1F5F9", "#E2E8F0"]} style={styles.gradientBackground}>
+      <LinearGradient
+        colors={["#F8F9FA", "#E9ECEF"]}
+        style={styles.gradientBackground}
+      >
         <KeyboardAvoidingView
           style={styles.container}
           behavior={Platform.OS === "ios" ? "padding" : "height"}
-          keyboardVerticalOffset={Platform.select({ ios: 60, android: 0 })}
         >
           <View style={styles.content}>
             <View style={styles.card}>
               <Text style={styles.heading}>दूध वितरण</Text>
               <Text style={styles.subtitle}>Worker Login Portal</Text>
 
-              {/* Worker ID Input with Icon */}
+              {/* Phone Number Input */}
               <View style={styles.inputWrapper}>
-                <Ionicons name="person-outline" size={20} color="#64748B" style={styles.icon} />
+                <Ionicons
+                  name="call-outline"
+                  size={20}
+                  color="#64748B"
+                  style={styles.icon}
+                />
                 <TextInput
-                  placeholder="Worker ID"
-                  placeholderTextColor="#999999"
-                  value={workerId}
-                  onChangeText={(text) => setWorkerId(text.replace(/[^a-zA-Z0-9]/g, ""))}
+                  placeholder="Enter 10-digit phone number"
+                  value={phoneNumber}
+                  onChangeText={(text) => {
+                    const cleanText = text.replace(/[^0-9]/g, "").slice(0, 10)
+                    setPhoneNumber(cleanText)
+                  }}
                   style={styles.inputWithIcon}
+                  keyboardType="numeric"
+                  maxLength={10}
                   autoCapitalize="none"
                   autoCorrect={false}
                   editable={!isLoading}
                 />
               </View>
 
-              {/* Password Input with Icon + Eye Toggle */}
+              {/* Password Input */}
               <View style={styles.inputWrapper}>
-                <Ionicons name="lock-closed-outline" size={20} color="#64748B" style={styles.icon} />
+                <Ionicons
+                  name="lock-closed-outline"
+                  size={20}
+                  color="#64748B"
+                  style={styles.icon}
+                />
                 <TextInput
-                  placeholder="4-digit PIN"
-                  placeholderTextColor="#999999"
+                  placeholder="Enter your password"
                   value={password}
-                  onChangeText={(text) => {
-                    const next = text.replace(/\D/g, "").slice(0, 4)
-                    setPassword(next)
-                  }}
+                  onChangeText={setPassword}
                   style={styles.inputWithIcon}
-                  secureTextEntry={!showPassword} // 👁️ toggle
+                  secureTextEntry={!showPassword}
                   editable={!isLoading}
-                  maxLength={4}
-                  keyboardType="number-pad"
                   autoCapitalize="none"
                   autoCorrect={false}
-                  contextMenuHidden
                 />
-                <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
+                <TouchableOpacity 
+                  onPress={() => setShowPassword(!showPassword)}
+                  disabled={isLoading}
+                >
                   <Ionicons
                     name={showPassword ? "eye-outline" : "eye-off-outline"}
                     size={20}
@@ -111,21 +202,34 @@ export default function Index() {
 
               {/* Login Button */}
               <TouchableOpacity
-                style={[styles.button, isLoading && styles.buttonDisabled]}
+                style={[
+                  styles.button,
+                  (phoneNumber.length !== 10 || !password.trim() || isLoading) && styles.buttonDisabled,
+                ]}
                 onPress={handleLogin}
-                disabled={isLoading}
-                activeOpacity={0.8}
+                disabled={phoneNumber.length !== 10 || !password.trim() || isLoading}
               >
                 {isLoading ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
+                  <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                    <Text style={[styles.buttonText, { marginLeft: 8 }]}>Logging in...</Text>
+                  </View>
                 ) : (
                   <Text style={styles.buttonText}>LOGIN</Text>
                 )}
               </TouchableOpacity>
+
+              {/* Helper text */}
+              <View style={styles.helperContainer}>
+                <Text style={styles.helperText}>
+                  Enter your registered 10-digit phone number and password to access the worker portal.
+                </Text>
+              </View>
             </View>
           </View>
         </KeyboardAvoidingView>
       </LinearGradient>
+      <Toast />
     </SafeAreaView>
   )
 }
@@ -204,5 +308,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
   },
+  loadingContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  helperContainer: {
+    marginTop: 16,
+    padding: 12,
+    backgroundColor: "#F1F5F9",
+    borderRadius: 6,
+  },
+  helperText: {
+    fontSize: 14,
+    color: "#64748B",
+    textAlign: "center",
+    lineHeight: 18,
+  },
 })
-

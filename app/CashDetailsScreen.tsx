@@ -1,8 +1,10 @@
 "use client"
 
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useLocalSearchParams, useRouter } from "expo-router"
 import { useMemo, useState } from "react"
 import {
+  ActivityIndicator,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -14,6 +16,7 @@ import {
   View,
 } from "react-native"
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
+import Toast from 'react-native-toast-message'
 
 const notes = [
   { label: "₹500", value: 500, color: "#87CEEB" },
@@ -31,16 +34,53 @@ const coins = [
   { label: "₹1", value: 1, color: "#87CEEB" },
 ]
 
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL
+
+// API function to submit total amount
+const submitTotalAmount = async (amount: number) => {
+  try {
+    const token = await AsyncStorage.getItem('authToken')
+    if (!token) {
+      throw new Error('No authentication token found')
+    }
+
+    if (!API_BASE_URL) {
+      throw new Error('API base URL is not configured.')
+    }
+
+    const response = await fetch(`${API_BASE_URL}/deliveries/total-amount`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        amount: amount
+      }),
+    })
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+
+    const data = await response.json()
+    return data
+  } catch (error) {
+    console.error('API request failed:', error)
+    throw error
+  }
+}
+
 export default function CashDetailsScreen() {
   const router = useRouter()
   const params = useLocalSearchParams()
-
   const insets = useSafeAreaInsets()
 
   const maxCashAmount = params.maxCashAmount ? Number(params.maxCashAmount) : 0
 
   const [noteCounts, setNoteCounts] = useState<Record<string, string>>({})
   const [coinCounts, setCoinCounts] = useState<Record<string, string>>({})
+  const [submitting, setSubmitting] = useState(false) // Loading state
 
   const computeTotal = (notesObj: Record<string, string>, coinsObj: Record<string, string>) => {
     let total = 0
@@ -76,12 +116,63 @@ export default function CashDetailsScreen() {
     else setCoinCounts(tempCoins)
   }
 
-  const onNext = () => {
-    const cashDetails = { noteCounts, coinCounts, totalAmount }
-    router.push({
-      pathname: "/ReturnedStocksScreen",
-      params: { ...params, cashDetails: JSON.stringify(cashDetails) },
-    })
+  const onNext = async () => {
+    // Validate that user has entered some amount
+    if (totalAmount <= 0) {
+      Toast.show({
+        type: 'error',
+        text1: 'Enter Cash Details',
+        text2: 'Please enter the cash amount collected',
+        visibilityTime: 3000,
+      })
+      return
+    }
+
+    setSubmitting(true)
+
+    try {
+      // Submit total amount to API
+      const response = await submitTotalAmount(totalAmount)
+
+      if (response.success) {
+        Toast.show({
+          type: 'success',
+          text1: 'Amount Submitted',
+          text2: `₹${totalAmount} submitted successfully`,
+          visibilityTime: 2000,
+        })
+
+        // Navigate to next screen with cash details
+        const cashDetails = { noteCounts, coinCounts, totalAmount }
+        
+        // Small delay to show success message
+        setTimeout(() => {
+          router.push({
+            pathname: "/ReturnedStocksScreen",
+            params: { 
+              ...params, 
+              cashDetails: JSON.stringify(cashDetails),
+              submittedAmount: totalAmount.toString()
+            },
+          })
+        }, 1200)
+
+      } else {
+        throw new Error(response.message || 'Failed to submit amount')
+      }
+
+    } catch (error) {
+      console.error('Error submitting total amount:', error)
+      
+      Toast.show({
+        type: 'error',
+        text1: 'Submission Failed',
+        text2: 'Unable to submit amount. Please try again.',
+        visibilityTime: 4000,
+      })
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const renderCard = (item: { label: string; value: number; color: string }, type: "note" | "coin") => (
@@ -95,6 +186,7 @@ export default function CashDetailsScreen() {
         placeholder="0"
         placeholderTextColor="#999"
         onChangeText={(val) => onChangeCount(type, item.label, val)}
+        editable={!submitting} // Disable during submission
       />
     </View>
   )
@@ -114,22 +206,49 @@ export default function CashDetailsScreen() {
             <Text style={styles.title}>Enter Cash Details</Text>
             <View style={styles.titleUnderline} />
           </View>
+
           <View style={styles.sectionHeader}>
             <Image source={require("../assets/images/Notes.png")} style={styles.sectionIcon} />
             <Text style={styles.sectionTitle}>Notes</Text>
           </View>
           {notes.map((note) => renderCard(note, "note"))}
+
           <View style={styles.sectionHeader}>
             <Image source={require("../assets/images/Coins.png")} style={styles.sectionIcon} />
             <Text style={styles.sectionTitle}>Coins</Text>
           </View>
           {coins.map((coin) => renderCard(coin, "coin"))}
-          <View style={styles.totalContainer}>
+
+          <View style={[styles.totalContainer, totalAmount > 0 && styles.totalContainerActive]}>
             <Text style={styles.totalLabel}>Total Entered</Text>
-            <Text style={styles.totalAmount}>{`₹${totalAmount}`}</Text>
+            <Text style={[styles.totalAmount, totalAmount > 0 && styles.totalAmountActive]}>
+              ₹{totalAmount}
+            </Text>
+            {totalAmount > 0 && (
+              <Text style={styles.totalSubtext}>This amount will be submitted</Text>
+            )}
           </View>
-          <TouchableOpacity style={styles.nextButton} onPress={onNext} activeOpacity={0.85}>
-            <Text style={styles.nextButtonText}>Next</Text>
+
+          <TouchableOpacity 
+            style={[
+              styles.nextButton, 
+              submitting && styles.nextButtonDisabled,
+              totalAmount <= 0 && styles.nextButtonInactive
+            ]} 
+            onPress={onNext} 
+            activeOpacity={0.85}
+            disabled={submitting || totalAmount <= 0}
+          >
+            {submitting ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator color="#ffffff" size="small" />
+                <Text style={styles.nextButtonText}>Submitting...</Text>
+              </View>
+            ) : (
+              <Text style={styles.nextButtonText}>
+                {totalAmount > 0 ? `Submit ₹${totalAmount}` : 'Enter Amount First'}
+              </Text>
+            )}
           </TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -174,8 +293,8 @@ const styles = StyleSheet.create({
   },
   sectionIcon: {
     marginRight: 8,
-    width: 24, // Added explicit width for PNG images
-    height: 24, // Added explicit height for PNG images
+    width: 24,
+    height: 24,
   },
   sectionTitle: {
     fontSize: 20,
@@ -237,6 +356,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e0e7ff",
   },
+  totalContainerActive: {
+    backgroundColor: "#EFF6FF",
+    borderColor: "#1e40af",
+    borderWidth: 2,
+  },
   totalLabel: {
     fontSize: 17,
     fontWeight: "600",
@@ -249,6 +373,15 @@ const styles = StyleSheet.create({
     color: "#1e40af",
     marginTop: 6,
     letterSpacing: -1,
+  },
+  totalAmountActive: {
+    color: "#059669",
+  },
+  totalSubtext: {
+    fontSize: 14,
+    color: "#64748B",
+    marginTop: 8,
+    fontStyle: "italic",
   },
   nextButton: {
     marginTop: 40,
@@ -263,11 +396,22 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 6,
   },
+  nextButtonInactive: {
+    backgroundColor: "#94A3B8",
+    shadowColor: "#94A3B8",
+  },
+  nextButtonDisabled: {
+    backgroundColor: "#F59E0B",
+  },
   nextButtonText: {
     color: "#ffffff",
     fontSize: 19,
     fontWeight: "800",
     letterSpacing: 0.2,
   },
+  loadingContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
 })
-

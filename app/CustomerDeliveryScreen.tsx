@@ -1,12 +1,11 @@
 "use client"
 
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useLocalSearchParams, useRouter } from "expo-router"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import {
-  Alert,
-  Image,
+  ActivityIndicator,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   ScrollView,
   StatusBar,
@@ -17,493 +16,821 @@ import {
   View,
 } from "react-native"
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
+import Toast from 'react-native-toast-message'
 
-type DeliveredItem = { name: string; qty: number }
-type CustomerType = {
+import { ProductDeliveryModal } from "./CDS/ProductDeliveryModal"
+
+// Updated Types with tracking
+type DeliveredItem = {
+  name: string;
+  qty: number;
+  productId: number;
+  price: number;        // This is now TOTAL amount per item, not per unit
+  originalPrice: number; // Original per-unit price
+  isEdited: boolean;     // Track if user edited the total
+}
+
+type Customer = {
+  id: number
+  workerId: number
+  customerId: number
+  fromDate: string
+  sequenceNumber: number
+  thruDate: string | null
+  customer: {
+    customerId: number
+    firstName: string
+    lastName: string | null
+    address1: string
+    address2: string | null
+    phoneNumber: string | null
+    city: string | null
+    pincode: string | null
+    classification: string
+  }
+}
+
+type WorkerInventory = {
+  id: number
+  workerId: number
+  inventoryId: number
+  totalPickedQuantity: number | null
+  remainingQuantity: number | null
+  date: string
+  inventory: {
+    inventoryId: number
+    totalOrderedQuantity: number
+    receivedQuantity: number | null
+    remainingQuantity: number | null
+    date: string
+    product: {
+      productId: number
+      productName: string
+      currentProductPrice: number
+      storeId: string
+      imageUrl: string | null
+      description: string | null
+    }
+  }
+}
+
+type CustomerForDelivery = {
   id: string
   name: string
   type: string
   address: string
   deliveredItems: DeliveredItem[]
   paymentReceived: number
+  customerId: number
+  deliveryConfirmed: boolean
+  sequenceNumber: number
 }
 
-const PRODUCT_PRICES: Record<string, number> = {
-  "गोल्ड 1": 67,
-  "गोल्ड 500": 34,
-  "गोल्ड 5 (Whole Milk)": 34,
-  स्टेण्डर्ड: 31,
-  डीटीएम: 26,
-  काऊ: 30,
-  बच्चा: 10,
-  चाह: 60,
-  "चाय स्पेशल": 54,
-  Delivery: 40,
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL
+
+const makeAuthenticatedRequest = async (url: string, options: RequestInit = {}) => {
+  try {
+    const token = await AsyncStorage.getItem('authToken')
+    if (!token) {
+      throw new Error('No authentication token found')
+    }
+
+    if (!API_BASE_URL) {
+      throw new Error('API base URL is not configured.')
+    }
+
+    const response = await fetch(`${API_BASE_URL}${url}`, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+        ...options.headers,
+      },
+    })
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+
+    const data = await response.json()
+    return data
+  } catch (error) {
+    console.error('API request failed:', error)
+    throw error
+  }
 }
 
-const PRODUCT_ICONS: Record<string, string | any> = {
-  "गोल्ड 1": require("../assets/images/milk-carton.png"),
-  "गोल्ड 500": require("../assets/images/milk-box.png"),
-  "गोल्ड 5 (Whole Milk)": require("../assets/images/Whole Milk.png"), // Using custom milk carton image
-  स्टेण्डर्ड: require("../assets/images/Standard.png"),
-  डीटीएम: require("../assets/images/double toned.png"),
-  काऊ: require("../assets/images/cow.png"),
-  बच्चा: require("../assets/images/Bacha.png"),
-  चाह: require("../assets/images/tea.png"),
-  "चाय स्पेशल": require("../assets/images/chai-special.png"),
-  Delivery: "🚚",
-}
-
-const ProductIcon = ({ productName, style }: { productName: string; style?: any }) => {
-  const icon = PRODUCT_ICONS[productName] || "📦"
-
-  if (typeof icon === "string") {
-    return <Text style={[styles.productIcon, style]}>{icon}</Text>
-  } else {
-    return <Image source={icon} style={[styles.productIconImage, style]} />
+const processDeliveryRequest = async (deliveryData: any) => {
+  try {
+    const response = await makeAuthenticatedRequest('/deliveries/process', {
+      method: 'POST',
+      body: JSON.stringify(deliveryData),
+    })
+    return response
+  } catch (error) {
+    console.error('Delivery processing failed:', error)
+    throw error
   }
 }
 
 export default function CustomerDeliveryScreen() {
   const params = useLocalSearchParams() as Record<string, string>
   const router = useRouter()
-
   const insets = useSafeAreaInsets()
 
-  let productsObj: Record<string, string> = {}
-  try {
-    productsObj = params.sent ? JSON.parse(params.sent) : {}
-  } catch {
-    productsObj = {}
-  }
-
-  const dynamicProductOptions = Object.entries(productsObj)
-    .filter(([_, qty]) => Number(qty) > 0)
-    .map(([product]) => product)
-
-  const DEMO_CUSTOMERS: CustomerType[] = [
-    {
-      id: "1",
-      name: "Anand Sweets",
-      type: "B2B",
-      address: "123, MG Road, Indore",
-      deliveredItems: [],
-      paymentReceived: 0,
-    },
-    {
-      id: "2",
-      name: "Mrs. Sharma",
-      type: "B2C",
-      address: "45, Scheme 78, Indore",
-      deliveredItems: [],
-      paymentReceived: 0,
-    },
-  ]
-
-  const [customers, setCustomers] = useState<CustomerType[]>(DEMO_CUSTOMERS)
+  const [customers, setCustomers] = useState<CustomerForDelivery[]>([])
+  const [workerInventory, setWorkerInventory] = useState<WorkerInventory[]>([])
   const [selectedIdx, setSelectedIdx] = useState(0)
-  const [maxConfirmedIdx, setMaxConfirmedIdx] = useState(0)
-  const [productQtys, setProductQtys] = useState<Record<string, string>>({})
-  const [paymentModalVisible, setPaymentModalVisible] = useState(false)
-  const [editingPayment, setEditingPayment] = useState("")
-  const [isEditingPayment, setIsEditingPayment] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [productDeliveryModal, setProductDeliveryModal] = useState(false)
+  const [processingDelivery, setProcessingDelivery] = useState(false)
+
+  useEffect(() => {
+    fetchDataFromAPI()
+  }, [])
+
+  const fetchDataFromAPI = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+
+      if (!API_BASE_URL) {
+        setError('API configuration missing.')
+        return
+      }
+
+      const customersResponse = await makeAuthenticatedRequest('/daily-activity-ci/my-customers')
+      const inventoryResponse = await makeAuthenticatedRequest('/daily-activity-ci/my-inventory')
+
+      if (customersResponse.success && inventoryResponse.success) {
+        const sortedCustomers = customersResponse.data.sort((a: Customer, b: Customer) => 
+          a.sequenceNumber - b.sequenceNumber
+        )
+
+        const transformedCustomers: CustomerForDelivery[] = sortedCustomers.map((item: Customer) => ({
+          id: item.customer.customerId.toString(),
+          name: `${item.customer.firstName} ${item.customer.lastName || ''}`.trim(),
+          type: item.customer.classification === 'B2B' ? 'B2B' : 'B2C',
+          address: `${item.customer.address1}${item.customer.address2 ? ', ' + item.customer.address2 : ''}, ${item.customer.city || ''} ${item.customer.pincode || ''}`.trim(),
+          deliveredItems: [],
+          paymentReceived: 0,
+          customerId: item.customer.customerId,
+          deliveryConfirmed: false,
+          sequenceNumber: item.sequenceNumber
+        }))
+
+        setCustomers(transformedCustomers)
+        setWorkerInventory(inventoryResponse.data)
+
+        Toast.show({
+          type: 'success',
+          text1: 'Ready for Delivery',
+          text2: `${transformedCustomers.length} customers loaded`,
+          visibilityTime: 2000,
+        })
+      } else {
+        throw new Error('Failed to fetch data from API')
+      }
+    } catch (error) {
+      console.error('Error fetching data:', error)
+      setError('Failed to load data from server.')
+
+      Toast.show({
+        type: 'error',
+        text1: 'Data Load Failed',
+        text2: 'Unable to load customers and inventory',
+        visibilityTime: 3000,
+      })
+
+      setCustomers([])
+      setWorkerInventory([])
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const customer = customers[selectedIdx]
-  const productsNotDelivered = dynamicProductOptions.filter(
-    (name) => !customer.deliveredItems.find((item) => item.name === name),
-  )
-
-  const getTotalDelivered = (productName: string) =>
-    customers.reduce(
-      (total, cust) =>
-        total +
-        cust.deliveredItems
-          .filter((item) => item.name === productName)
-          .reduce((subTotal, item) => subTotal + item.qty, 0),
-      0,
-    )
-
-  const deliveredObj: Record<string, number> = {}
-  dynamicProductOptions.forEach((product) => {
-    deliveredObj[product] = getTotalDelivered(product)
-  })
-
-  const totalPayments = customers.reduce((sum, cust) => sum + cust.paymentReceived, 0)
-
-  const calculateTotalPayment = (deliveredItems: DeliveredItem[]) => {
-    console.log("[v0] Calculating payment for items:", deliveredItems)
-    const itemsTotal = deliveredItems.reduce((total, item) => {
-      const price = PRODUCT_PRICES[item.name] || 0
-      if (!PRODUCT_PRICES[item.name]) {
-        console.warn("[v0] WARNING: No price found for product:", item.name)
-        Alert.alert("Price Missing", `No price defined for product: ${item.name}. Please contact support.`)
-      }
-      console.log("[v0] Item:", item.name, "Qty:", item.qty, "Price:", price, "Subtotal:", price * item.qty)
-      return total + price * item.qty
-    }, 0)
-
-    // Removed the flat delivery charge from total calculation
-    console.log("[v0] Items total (no delivery charges):", itemsTotal)
-    return itemsTotal
-  }
-
-  const autoCalculatedPayment = calculateTotalPayment(customer.deliveredItems)
-  console.log("[v0] Auto-calculated payment for customer:", customer.name, "Amount:", autoCalculatedPayment)
-
-  const handleAddItem = (prod: string) => {
-    const qtyStr = productQtys[prod]
-    if (!qtyStr || Number(qtyStr) <= 0) return Alert.alert("Error", "Enter a valid quantity.")
-    const enteredQty = Number(qtyStr)
-    const totalDelivered = customer.deliveredItems.filter((i) => i.name === prod).reduce((s, i) => s + i.qty, 0)
-    const allowedQty = Number(productsObj[prod])
-    if (totalDelivered + enteredQty > allowedQty) {
-      return Alert.alert("Stock Exceeded", `Only ${allowedQty - totalDelivered} packets left for ${prod}.`)
-    }
-    const updatedDeliveredItems = [...customer.deliveredItems, { name: prod, qty: enteredQty }]
-    console.log("[v0] Adding item:", prod, "Qty:", enteredQty)
-    console.log("[v0] Updated delivered items:", updatedDeliveredItems)
-    const updatedCustomers = [...customers]
-    updatedCustomers[selectedIdx] = { ...updatedCustomers[selectedIdx], deliveredItems: updatedDeliveredItems }
-    setCustomers(updatedCustomers)
-    setProductQtys((q) => ({ ...q, [prod]: "" }))
-  }
-
-  const handleRemoveItem = (index: number) => {
-    Alert.alert("Remove item", "Are you sure?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Remove",
-        style: "destructive",
-        onPress: () => {
-          const updatedDeliveredItems = customer.deliveredItems.filter((_, i) => i !== index)
-          const updatedCustomers = [...customers]
-          updatedCustomers[selectedIdx] = { ...updatedCustomers[selectedIdx], deliveredItems: updatedDeliveredItems }
-          setCustomers(updatedCustomers)
-        },
-      },
-    ])
-  }
-
-  const handleEditPayment = () => {
-    setEditingPayment(customer.paymentReceived > 0 ? String(customer.paymentReceived) : String(autoCalculatedPayment))
-    setIsEditingPayment(true)
-    setPaymentModalVisible(true)
-  }
-
-  const openPaymentModal = () => {
-    setEditingPayment(customer.paymentReceived > 0 ? String(customer.paymentReceived) : "")
-    setPaymentModalVisible(true)
-  }
-
-  const handleConfirmPayment = () => {
-    if (isEditingPayment) {
-      const amountToAdd = Number(editingPayment)
-      if (isNaN(amountToAdd) || amountToAdd < 0) return Alert.alert("Error", "Enter valid payment.")
-      const updatedCustomers = [...customers]
-      updatedCustomers[selectedIdx] = { ...updatedCustomers[selectedIdx], paymentReceived: amountToAdd }
-      setCustomers(updatedCustomers)
-      setIsEditingPayment(false)
-    } else {
-      // Use auto-calculated payment
-      const updatedCustomers = [...customers]
-      updatedCustomers[selectedIdx] = { ...updatedCustomers[selectedIdx], paymentReceived: autoCalculatedPayment }
-      setCustomers(updatedCustomers)
-    }
-    setPaymentModalVisible(false)
-  }
 
   const handleTabPress = (idx: number) => {
-    if (idx > maxConfirmedIdx) return Alert.alert("Finish this customer", "Complete current delivery first.")
     setSelectedIdx(idx)
   }
 
-  const handleConfirmNext = () => {
-    const hasDeliveredItems = customer.deliveredItems.length > 0
+  // Handle per-item TOTAL amount change (not per-unit price)
+  const handleItemTotalChange = (itemIndex: number, newTotal: string) => {
+    const totalAmount = Number(newTotal) || 0
+    
+    const updatedCustomers = [...customers]
+    const updatedItems = [...customer.deliveredItems]
+    updatedItems[itemIndex] = {
+      ...updatedItems[itemIndex],
+      price: totalAmount,  // This is now the TOTAL amount for this item
+      isEdited: true       // Mark as edited
+    }
+    
+    updatedCustomers[selectedIdx] = {
+      ...updatedCustomers[selectedIdx],
+      deliveredItems: updatedItems
+    }
+    
+    setCustomers(updatedCustomers)
+  }
 
-    if (!hasDeliveredItems) {
-      Alert.alert(
-        "No Items Delivered",
-        "You have not delivered any items for this customer. Do you still want to proceed?",
-        [
-          { text: "Cancel", style: "cancel" },
-          { text: "Yes, Proceed", onPress: () => proceedToNextCustomer() },
-        ],
-        { cancelable: false },
-      )
+  // Calculate total payment from all items (items.price is already total per item)
+  const calculateTotalPayment = (deliveredItems: DeliveredItem[]) => {
+    return deliveredItems.reduce((total, item) => total + item.price, 0)
+  }
+
+  // Calculate correct bill amount based on editing status
+  const calculateBillAmount = (item: DeliveredItem) => {
+    if (item.isEdited) {
+      // If edited, use the edited amount directly (no multiplication)
+      return item.price
     } else {
-      Alert.alert(
-        "Confirm",
-        "Are you sure you want to confirm and proceed?",
-        [
-          { text: "Cancel", style: "cancel" },
-          { text: "Yes", onPress: () => proceedToNextCustomer() },
-        ],
-        { cancelable: false },
-      )
+      // If not edited, calculate: original_price * quantity
+      return item.originalPrice * item.qty
     }
   }
 
-  const proceedToNextCustomer = () => {
-    if (selectedIdx < customers.length - 1) {
-      setMaxConfirmedIdx(Math.max(maxConfirmedIdx, selectedIdx + 1))
-      setSelectedIdx(selectedIdx + 1)
-      setEditingPayment("")
-      setPaymentModalVisible(false)
-      setProductQtys({})
-      setIsEditingPayment(false)
-    } else {
-      const totalExpectedPayments = customers.reduce((sum, cust) => {
-        const customerPayment = calculateTotalPayment(cust.deliveredItems)
-        console.log("[v0] Customer:", cust.name, "Expected payment:", customerPayment)
-        return sum + customerPayment
-      }, 0)
-
-      console.log("[v0] Total expected payments for cash collection:", totalExpectedPayments)
+  const confirmDelivery = async () => {
+    const hasDeliveredItems = customer.deliveredItems.length > 0
+    
+    if (selectedIdx === customers.length - 1) {
+      if (hasDeliveredItems) {
+        await processCurrentDelivery()
+      }
+      
+      const deliveryData = customers.map(customer => ({
+        customerId: customer.customerId,
+        deliveredItems: customer.deliveredItems,
+        paymentReceived: customer.paymentReceived,
+        deliveryConfirmed: customer.deliveryConfirmed
+      }))
 
       router.push({
         pathname: "/CashDetailsScreen",
         params: {
-          sent: params.sent,
-          delivered: JSON.stringify(deliveredObj),
-          payments: totalExpectedPayments.toString(),
-          maxCashAmount: totalExpectedPayments.toString(),
-          products: encodeURIComponent(JSON.stringify(productsObj)),
+          deliveryData: JSON.stringify(deliveryData),
+          totalPayments: customers.reduce((sum, cust) => sum + cust.paymentReceived, 0).toString(),
         },
       })
+      return
+    }
+
+    if (hasDeliveredItems) {
+      await processCurrentDelivery()
+    } else {
+      Toast.show({
+        type: 'info',
+        text1: 'No Items',
+        text2: 'Moving to next customer',
+        visibilityTime: 1500,
+      })
+    }
+
+    setSelectedIdx(selectedIdx + 1)
+  }
+
+  const processCurrentDelivery = async () => {
+    if (customer.deliveryConfirmed) return
+
+    setProcessingDelivery(true)
+
+    try {
+      Toast.show({
+        type: 'info',
+        text1: 'Processing...',
+        text2: `Confirming delivery for ${customer.name}`,
+        visibilityTime: 2000,
+      })
+
+      // Process each item with correct calculation
+      for (const item of customer.deliveredItems) {
+        const inventoryItem = workerInventory.find(inv => 
+          inv.inventory?.product.productId === item.productId
+        )
+        
+        if (inventoryItem) {
+          const deliveryDto = {
+            customerId: customer.customerId,
+            inventoryId: inventoryItem.inventoryId,
+            deliveredQuantity: item.qty,
+            billAmount: calculateBillAmount(item), // ✅ CORRECT CALCULATION
+            isPriceCustomized: item.isEdited       // ✅ FLAG FOR BACKEND
+          }
+
+          const response = await processDeliveryRequest(deliveryDto)
+          
+          if (!response.success && !response.isDuplicate) {
+            throw new Error(`Failed to process ${item.name}: ${response.message}`)
+          }
+        }
+      }
+
+      const updatedCustomers = [...customers]
+      updatedCustomers[selectedIdx] = { 
+        ...updatedCustomers[selectedIdx], 
+        deliveryConfirmed: true,
+        paymentReceived: calculateTotalPayment(customer.deliveredItems)
+      }
+      setCustomers(updatedCustomers)
+
+      Toast.show({
+        type: 'success',
+        text1: 'Delivery Confirmed',
+        text2: `${customer.name}'s delivery processed`,
+        visibilityTime: 2000,
+      })
+
+    } catch (error) {
+      console.error('Delivery processing error:', error)
+      
+      Toast.show({
+        type: 'error',
+        text1: 'Processing Failed',
+        text2: 'Server error occurred',
+        visibilityTime: 3000,
+      })
+    } finally {
+      setProcessingDelivery(false)
     }
   }
 
-  const filteredDeliveredItems = customer.deliveredItems.filter((item) => dynamicProductOptions.includes(item.name))
-
-  const isQuantityValid = (product: string, qty: string) => {
-    if (!qty || Number(qty) <= 0) return false
-    const enteredQty = Number(qty)
-    const totalDelivered = customer.deliveredItems.filter((i) => i.name === product).reduce((s, i) => s + i.qty, 0)
-    const availableQty = Number(productsObj[product]) - getTotalDelivered(product)
-    return enteredQty <= availableQty
+  const getDeliveryProgress = () => {
+    const completed = selectedIdx
+    const total = customers.length
+    return { completed, total }
   }
 
-  const getAvailableQty = (product: string) => {
-    return Number(productsObj[product]) - getTotalDelivered(product)
+  // Loading and Error screens remain the same...
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#2563EB" />
+          <Text style={styles.loadingText}>Loading delivery route...</Text>
+        </View>
+      </SafeAreaView>
+    )
   }
+
+  if (error || customers.length === 0) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>
+            {!API_BASE_URL ? 'API Configuration Missing' : error || 'No customers assigned'}
+          </Text>
+          
+          {!API_BASE_URL ? (
+            <Text style={styles.configInstructions}>
+              Create a .env file with EXPO_PUBLIC_API_BASE_URL
+            </Text>
+          ) : (
+            <TouchableOpacity style={styles.retryButton} onPress={fetchDataFromAPI}>
+              <Text style={styles.retryButtonText}>Retry</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </SafeAreaView>
+    )
+  }
+
+  const progress = getDeliveryProgress()
+  const totalPayment = calculateTotalPayment(customer.deliveredItems)
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: "#F8F9FA" }} edges={["top"]}>
+    <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#F8F9FA" />
-      <View style={{ flex: 1, backgroundColor: "#F8F9FA" }}>
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-          <View style={{ flex: 1, backgroundColor: "#F8F9FA" }}>
-            <View style={styles.tabs}>
-              {customers.map((c, idx) => (
-                <TouchableOpacity
-                  key={c.id}
-                  style={[styles.tab, idx === selectedIdx && styles.activeTab]}
-                  onPress={() => handleTabPress(idx)}
-                >
-                  <Text style={idx === selectedIdx ? styles.activeTabText : styles.tabText}>{c.name}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <ScrollView
-              contentContainerStyle={{ paddingBottom: 140 }}
-              keyboardShouldPersistTaps="handled"
-              style={{ backgroundColor: "#F8F9FA" }}
+      
+      {/* Progress Header */}
+      <View style={styles.progressHeader}>
+        <Text style={styles.progressText}>
+          Delivery {progress.completed + 1} of {progress.total}
+        </Text>
+        <View style={styles.progressBar}>
+          <View 
+            style={[styles.progressFill, { width: `${((progress.completed) / progress.total) * 100}%` }]} 
+          />
+        </View>
+      </View>
+      
+      {/* Customer Navigation Tabs - NO SEQUENCE NUMBERS */}
+      <View style={styles.tabsContainer}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabs}>
+          {customers.map((c, idx) => (
+            <TouchableOpacity
+              key={c.id}
+              style={[
+                styles.tab, 
+                selectedIdx === idx && styles.activeTab,
+                c.deliveryConfirmed && styles.confirmedTab
+              ]}
+              onPress={() => handleTabPress(idx)}
             >
-              <View style={styles.card}>
-                <Text style={styles.name}>
-                  {customer.name} ({customer.type})
-                </Text>
-                <Text style={styles.address}>{customer.address}</Text>
+              <Text style={[
+                styles.tabText, 
+                selectedIdx === idx && styles.activeTabText,
+                c.deliveryConfirmed && styles.confirmedTabText
+              ]}>
+                {c.deliveryConfirmed ? '✓ ' : ''}{c.name}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
 
-                <View style={styles.subsection}>
-                  <Text style={styles.sectionTitle}>Delivered Items</Text>
-                  {filteredDeliveredItems.length > 0 ? (
-                    filteredDeliveredItems.map((item, idx) => (
-                      <View key={idx} style={styles.deliveredItemRow}>
-                        <View style={{ flex: 1, minWidth: 0 }}>
-                          <View style={styles.productNameWithIcon}>
-                            <ProductIcon productName={item.name} />
-                            <Text style={styles.deliveredProductName} numberOfLines={2}>
-                              {item.name}
-                            </Text>
-                          </View>
-                          <Text style={styles.deliveredProductQty}>{item.qty} Pkt</Text>
-                        </View>
-                        <TouchableOpacity style={styles.removeItemButton} onPress={() => handleRemoveItem(idx)}>
-                          <Text style={styles.removeItemText}>Remove</Text>
-                        </TouchableOpacity>
-                      </View>
-                    ))
-                  ) : (
-                    <Text style={styles.deliveredProductName}>No delivered items yet.</Text>
-                  )}
-                </View>
-
-                <View style={styles.subsection}>
-                  <Text style={styles.sectionTitle}>Add Item</Text>
-                  {productsNotDelivered.length > 0 ? (
-                    productsNotDelivered.map((option) => {
-                      const availableQty = getAvailableQty(option)
-                      const currentQty = productQtys[option] || ""
-                      const isValid = isQuantityValid(option, currentQty)
-                      const hasValue = currentQty && Number(currentQty) > 0
-                      const exceedsStock = hasValue && Number(currentQty) > availableQty
-
-                      return (
-                        <View key={option} style={styles.productCard}>
-                          <View style={styles.productNameWithIcon}>
-                            <ProductIcon productName={option} />
-                            <View style={{ flex: 1 }}>
-                              <Text style={styles.productName}>{option}</Text>
-                              <Text style={styles.productAvailable}>Available: {availableQty}</Text>
-                            </View>
-                          </View>
-                          <View style={styles.row}>
-                            <TextInput
-                              style={[styles.input, { flex: 1 }, exceedsStock && styles.inputError]}
-                              value={currentQty}
-                              placeholder="Qty"
-                              onChangeText={(qty) => {
-                                const numQty = Number(qty)
-                                if (qty === "" || (numQty >= 0 && numQty <= availableQty)) {
-                                  setProductQtys((q) => ({ ...q, [option]: qty }))
-                                }
-                              }}
-                              keyboardType="numeric"
-                              maxLength={availableQty.toString().length + 1}
-                            />
-                            <TouchableOpacity
-                              style={[styles.addButton, (!hasValue || !isValid) && styles.addButtonDisabled]}
-                              onPress={() => handleAddItem(option)}
-                              disabled={!hasValue || !isValid}
-                            >
-                              <Text style={styles.addButtonText}>Add</Text>
-                            </TouchableOpacity>
-                          </View>
-                          {exceedsStock && (
-                            <Text style={styles.errorText}>Maximum {availableQty} packets available</Text>
-                          )}
-                        </View>
-                      )
-                    })
-                  ) : (
-                    <Text>No available products to add.</Text>
-                  )}
-                </View>
-
-                {customer.type === "B2B" && (
-                  <View style={styles.subsection}>
-                    <Text style={styles.sectionTitle}>Collect Payment</Text>
-                    <View style={styles.paymentContainer}>
-                      <View style={styles.paymentAmountContainer}>
-                        <Text style={styles.paymentLabel}>Total Amount:</Text>
-                        <Text style={styles.paymentAmount}>₹{autoCalculatedPayment}</Text>
-                      </View>
-                      <View style={styles.paymentButtonsContainer}>
-                        <TouchableOpacity style={styles.confirmPaymentButton} onPress={handleConfirmPayment}>
-                          <Text style={styles.confirmPaymentButtonText}>Confirm</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={styles.editPaymentButton} onPress={handleEditPayment}>
-                          <Text style={styles.editPaymentButtonText}>Edit</Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                    {customer.paymentReceived > 0 && (
-                      <Text style={styles.paymentReceivedText}>✓ ₹{customer.paymentReceived} confirmed</Text>
-                    )}
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 100 }}>
+          <View style={styles.card}>
+            {/* Customer Info */}
+            <View style={styles.customerCard}>
+              <View style={styles.customerHeader}>
+                <Text style={styles.name}>{customer.name}</Text>
+                {customer.deliveryConfirmed && (
+                  <View style={styles.confirmedBadge}>
+                    <Text style={styles.confirmedBadgeText}>✓</Text>
                   </View>
                 )}
               </View>
-            </ScrollView>
-          </View>
-        </KeyboardAvoidingView>
+              <Text style={styles.address}>{customer.address}</Text>
+            </View>
 
-        <Modal
-          visible={paymentModalVisible}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setPaymentModalVisible(false)}
-        >
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
-              <Text style={styles.modalHeading}>
-                {isEditingPayment ? "Edit Payment Amount" : "Confirm Payment Amount"}
-              </Text>
-              <TextInput
-                style={styles.modalInput}
-                value={editingPayment}
-                onChangeText={setEditingPayment}
-                keyboardType="numeric"
-                placeholder="Enter amount"
-                autoFocus
-              />
-              <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 16 }}>
-                <TouchableOpacity
-                  style={styles.modalCancelBtn}
-                  onPress={() => {
-                    setPaymentModalVisible(false)
-                    setIsEditingPayment(false)
-                  }}
-                >
-                  <Text style={{ color: "#2563EB", fontWeight: "bold" }}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.modalConfirmBtn} onPress={handleConfirmPayment}>
-                  <Text style={{ color: "#fff", fontWeight: "bold" }}>Confirm</Text>
-                </TouchableOpacity>
+            {/* Items with Individual Editable Totals - MOBILE OPTIMIZED */}
+{customer.deliveredItems.length > 0 && (
+  <View style={styles.subsection}>
+    <Text style={styles.sectionTitle}>Items ({customer.deliveredItems.length})</Text>
+    <View style={styles.itemsContainer}>
+      {customer.deliveredItems.map((item, idx) => (
+        <View key={idx} style={styles.itemCard}>
+          {/* Product Name - Full Width */}
+          <Text style={styles.itemName}>{item.name}</Text>
+          
+          {/* Quantity and Price in Responsive Row */}
+          <View style={styles.itemDetailsRow}>
+            {/* Quantity Section - Takes 60% of width */}
+            <View style={styles.quantitySection}>
+              <Text style={styles.detailLabel}>Quantity:</Text>
+              <Text style={styles.quantityValue}>{item.qty} packets</Text>
+            </View>
+            
+            {/* Price Section - Takes 40% of width */}
+            <View style={styles.priceSection}>
+              <Text style={styles.detailLabel}>Total:</Text>
+              <View style={styles.priceInputContainer}>
+                <Text style={styles.rupeeSymbol}>₹</Text>
+                <TextInput
+                  style={[
+                    styles.responsivePriceInput,
+                    customer.deliveryConfirmed && styles.priceInputDisabled
+                  ]}
+                  value={item.price.toString()}
+                  placeholder={`${item.originalPrice * item.qty}`}
+                  onChangeText={(newTotal) => handleItemTotalChange(idx, newTotal)}
+                  keyboardType="numeric"
+                  editable={!customer.deliveryConfirmed}
+                />
               </View>
             </View>
           </View>
-        </Modal>
-
-        <View style={[styles.fixedButtonContainer, { bottom: insets.bottom + 10 }]}>
-          <TouchableOpacity style={styles.confirmButton} onPress={handleConfirmNext}>
-            <Text style={styles.confirmButtonText}>Confirm & Next</Text>
-          </TouchableOpacity>
         </View>
+      ))}
+      
+      {/* Grand Total */}
+      <View style={styles.grandTotalContainer}>
+        <Text style={styles.grandTotalLabel}>Grand Total:</Text>
+        <Text style={styles.grandTotalAmount}>₹{totalPayment}</Text>
+      </View>
+    </View>
+  </View>
+)}
+
+            {/* Add Products Button */}
+            <TouchableOpacity
+              style={[
+                styles.addProductsButton,
+                customer.deliveryConfirmed && styles.addProductsButtonDisabled
+              ]}
+              onPress={() => setProductDeliveryModal(true)}
+              disabled={customer.deliveryConfirmed}
+            >
+              <Text style={styles.addProductsButtonText}>
+                {customer.deliveryConfirmed ? '✓ Products Confirmed' : '📦 Add Products'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+
+      {/* Product Delivery Modal */}
+      <ProductDeliveryModal
+        visible={productDeliveryModal}
+        customer={customer}
+        customers={customers}
+        setCustomers={setCustomers}
+        selectedIdx={selectedIdx}
+        workerInventory={workerInventory}
+        onClose={() => setProductDeliveryModal(false)}
+      />
+
+      {/* Single Confirm Button */}
+      <View style={[styles.fixedButtonContainer, { bottom: insets.bottom + 20 }]}>
+        <TouchableOpacity 
+          style={[
+            styles.confirmButton,
+            processingDelivery && styles.confirmButtonProcessing
+          ]} 
+          onPress={confirmDelivery}
+          disabled={processingDelivery}
+        >
+          <Text style={styles.confirmButtonText}>
+            {processingDelivery 
+              ? 'Processing...' 
+              : selectedIdx === customers.length - 1 
+                ? 'Complete All Deliveries' 
+                : 'Confirm & Next Customer'
+            }
+          </Text>
+        </TouchableOpacity>
       </View>
     </SafeAreaView>
   )
 }
 
+// Styles remain exactly the same as before...
 const styles = StyleSheet.create({
-  fixedButtonContainer: {
-    position: "absolute",
-    left: 18,
-    right: 18,
-    zIndex: 100,
+  // ... all existing styles remain the same
+  container: { flex: 1, backgroundColor: "#F8F9FA" },
+  
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
     alignItems: "center",
+    padding: 20,
   },
-  confirmButton: {
+  
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: "#64748B",
+    textAlign: "center",
+  },
+  
+  errorContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  
+  errorText: {
+    color: "#EF4444",
+    fontSize: 18,
+    textAlign: "center",
+    marginBottom: 20,
+    fontWeight: "600",
+  },
+  
+  retryButton: {
     backgroundColor: "#2563EB",
-    borderRadius: 10,
-    padding: 16,
-    width: "90%",
-    alignItems: "center",
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
   },
-  confirmButtonText: {
+  
+  retryButtonText: {
     color: "white",
-    fontWeight: "700",
+    fontWeight: "600",
     fontSize: 16,
   },
-  container: { flex: 1, backgroundColor: "#F8F9FA" },
-  tabs: {
+  
+  configInstructions: {
+    color: "#64748B",
+    fontSize: 14,
+    textAlign: "center",
+    backgroundColor: "#F8FAFC",
+    padding: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    fontFamily: "monospace",
+    lineHeight: 20,
+  },
+
+  itemsContainer: {
+    backgroundColor: "#F8FAFC",
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+
+  itemCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 10,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+
+  itemName: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1F2937",
+    marginBottom: 12,
+    lineHeight: 24,
+    // ✅ FIXED: No width constraints that could cause wrapping
+    flexShrink: 1,
+    flexGrow: 1,
+  },
+
+  itemDetailsRow: {
     flexDirection: "row",
-    paddingVertical: 10,
+    justifyContent: "space-between",
+    alignItems: "flex-start", // Changed to flex-start to prevent height issues
+    // ✅ RESPONSIVE: Use percentage-based widths
+  },
+
+  quantitySection: {
+    // ✅ RESPONSIVE: Takes 60% of available width
+    flex: 3,
+    marginRight: 12, // Space between sections
+  },
+
+  priceSection: {
+    // ✅ RESPONSIVE: Takes 40% of available width
+    flex: 2,
+    alignItems: "flex-end",
+  },
+
+  detailLabel: {
+    fontSize: 14,
+    color: "#6B7280",
+    fontWeight: "500",
+    marginBottom: 4,
+  },
+
+  quantityValue: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#374151",
+    // ✅ FIXED: Ensure text doesn't wrap
+    flexShrink: 0,
+  },
+
+  priceInputContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F3F4F6",
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: "#D1FAE5",
+    paddingHorizontal: 8, // ✅ REDUCED: Less padding for smaller screens
+    paddingVertical: 8,
+    // ✅ RESPONSIVE: Use flexible width instead of fixed minWidth
+    width: "100%", // Take full width of parent (40% of row)
+    maxWidth: 120, // ✅ MAXIMUM width to prevent it from getting too large
+  },
+
+  rupeeSymbol: {
+    fontSize: 16, // ✅ SMALLER: Reduced size for mobile
+    fontWeight: "700",
+    color: "#059669",
+    marginRight: 4,
+    // ✅ FIXED: Prevent shrinking
+    flexShrink: 0,
+  },
+
+  responsivePriceInput: {
+    fontSize: 16, // ✅ SMALLER: Better for mobile
+    fontWeight: "700",
+    color: "#059669",
+    textAlign: "right",
+    // ✅ RESPONSIVE: Take remaining space
+    flex: 1,
+    padding: 0,
+    margin: 0,
+    // ✅ FIXED: Ensure it doesn't overflow
+    minWidth: 0, // Allow it to shrink if needed
+  },
+
+  priceInputDisabled: {
+    color: "#9CA3AF",
+    backgroundColor: "transparent",
+  },
+
+  grandTotalContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 2,
+    borderTopColor: "#2563EB",
+    backgroundColor: "#EFF6FF",
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+
+  grandTotalLabel: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1E40AF",
+    // ✅ RESPONSIVE: Allow text to take needed space
+    flex: 1,
+  },
+
+  grandTotalAmount: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#2563EB",
+    // ✅ FIXED: Prevent shrinking
+    flexShrink: 0,
+  },
+
+  progressHeader: {
+    backgroundColor: "#EFF6FF",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#DBEAFE",
+  },
+
+  progressText: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#1E40AF",
+    textAlign: "center",
+    marginBottom: 8,
+  },
+
+  progressBar: {
+    height: 4,
+    backgroundColor: "#DBEAFE",
+    borderRadius: 2,
+    overflow: "hidden",
+  },
+
+  progressFill: {
+    height: "100%",
+    backgroundColor: "#2563EB",
+    borderRadius: 2,
+  },
+
+  tabsContainer: {
     backgroundColor: "#fff",
     borderBottomWidth: 1,
     borderBottomColor: "#EEE",
+    paddingVertical: 12,
   },
+  
+  tabs: {
+    paddingLeft: 16,
+  },
+  
   tab: {
     paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 7,
-    marginHorizontal: 3,
-    backgroundColor: "#EFF6FF",
+    paddingVertical: 12,
+    borderRadius: 8,
+    marginRight: 8,
+    backgroundColor: "#F1F5F9",
+    alignItems: "center",
   },
-  activeTab: { backgroundColor: "#2563EB" },
-  tabText: { color: "#333", fontWeight: "500" },
-  activeTabText: { color: "#fff", fontWeight: "700" },
+  
+  activeTab: { 
+    backgroundColor: "#2563EB" 
+  },
+
+  confirmedTab: {
+    backgroundColor: "#ECFDF5",
+    borderColor: "#10B981",
+    borderWidth: 1,
+  },
+  
+  tabText: { 
+    color: "#333", 
+    fontWeight: "500",
+    fontSize: 14,
+    textAlign: "center",
+  },
+  
+  activeTabText: { 
+    color: "#fff", 
+    fontWeight: "700" 
+  },
+
+  confirmedTabText: {
+    color: "#059669",
+    fontWeight: "700",
+  },
+
   card: {
     backgroundColor: "#fff",
     borderRadius: 14,
@@ -511,252 +838,176 @@ const styles = StyleSheet.create({
     padding: 22,
     elevation: 2,
   },
-  name: { fontSize: 22, fontWeight: "bold", marginBottom: 2 },
-  address: { color: "#425066", fontSize: 14, marginBottom: 12 },
-  subsection: { marginTop: 18 },
-  sectionTitle: { fontSize: 16, fontWeight: "700", marginBottom: 8, color: "#1E293B" },
-  deliveredItemRow: {
+
+  customerCard: {
+    marginBottom: 20,
+  },
+
+  customerHeader: {
     flexDirection: "row",
-    alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "#F6FAFD",
-    paddingVertical: 10,
-    paddingHorizontal: 15,
-    borderRadius: 7,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: "#DBEAFE",
-  },
-  deliveredProductName: {
-    fontSize: 17,
-    fontWeight: "700",
-    color: "#19376D",
-    marginBottom: 2,
-    flexShrink: 1,
-    flexWrap: "wrap",
-  },
-  deliveredProductQty: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#297BF6",
-    marginBottom: 2,
-  },
-  productList: {
-    flexDirection: "column",
-    gap: 10,
-    marginVertical: 7,
+    alignItems: "center",
     marginBottom: 8,
   },
-  productCard: {
-    paddingVertical: 13,
-    paddingHorizontal: 16,
-    backgroundColor: "#F2F6FE",
-    borderRadius: 9,
-    borderWidth: 1,
-    borderColor: "#DBEAFE",
-    marginBottom: 10,
-  },
-  productCardSelected: {
-    backgroundColor: "#E0EFFF",
-    borderColor: "#2563EB",
-  },
-  productName: {
-    fontSize: 17,
-    fontWeight: "bold",
-    color: "#19376D",
-  },
-  productAvailable: {
-    fontSize: 15,
-    color: "#64748B",
-    marginTop: 2,
-    fontWeight: "600",
-  },
-  removeItemButton: {
-    backgroundColor: "#EF4444",
-    borderRadius: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    marginLeft: 8,
-  },
-  removeItemText: {
-    color: "#fff",
-    fontWeight: "600",
-    fontSize: 13,
-  },
-  row: { flexDirection: "row", alignItems: "center", marginTop: 6 },
-  input: {
-    borderWidth: 1,
-    borderColor: "#D1D5DB",
-    borderRadius: 8,
-    padding: 8,
-    marginRight: 8,
-    minWidth: 80,
-    backgroundColor: "#F8FAFC",
-    fontSize: 15,
-  },
-  addButton: {
-    backgroundColor: "#10B981",
-    borderRadius: 8,
-    paddingHorizontal: 13,
-    paddingVertical: 8,
-  },
-  addButtonDisabled: {
-    backgroundColor: "#B3E9CF",
-  },
-  addButtonText: { color: "#fff", fontWeight: "700" },
-  collectButton: {
-    backgroundColor: "#F59E0B",
-    borderRadius: 8,
-    paddingHorizontal: 13,
-    paddingVertical: 8,
-    marginRight: 10,
-  },
-  collectButtonText: { color: "#fff", fontWeight: "700" },
-  paymentSummaryText: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#0D9488",
-  },
-  paymentStatusRow: {
-    marginTop: 12,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  paymentStatusText: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#16A34A",
-  },
-  removePaymentButton: {
-    backgroundColor: "#EF4444",
-    borderRadius: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  removePaymentText: {
-    color: "#fff",
-    fontWeight: "600",
-  },
-  modalOverlay: {
+  
+  name: { 
+    fontSize: 24, 
+    fontWeight: "bold", 
+    color: "#1E293B",
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.3)",
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 24,
   },
-  modalContent: {
-    backgroundColor: "#fff",
-    borderRadius: 14,
-    padding: 22,
-    width: "100%",
-  },
-  modalHeading: { fontSize: 18, fontWeight: "700", marginBottom: 12 },
-  modalInput: {
+
+  confirmedBadge: {
+    backgroundColor: "#ECFDF5",
+    borderColor: "#10B981",
     borderWidth: 1,
-    borderColor: "#D1D5DB",
-    borderRadius: 8,
-    padding: 10,
-    fontSize: 16,
-    backgroundColor: "#F8FAFC",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
   },
-  modalCancelBtn: {
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#2563EB",
-  },
-  modalConfirmBtn: {
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-    backgroundColor: "#2563EB",
-  },
-  inputError: {
-    borderColor: "#EF4444",
-    borderWidth: 2,
-    backgroundColor: "#FEF2F2",
-  },
-  errorText: {
-    color: "#EF4444",
-    fontSize: 12,
-    fontWeight: "600",
-    marginTop: 4,
-  },
-  paymentContainer: {
-    backgroundColor: "#F8FAFC",
-    borderRadius: 10,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: "#E2E8F0",
-  },
-  paymentAmountContainer: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  paymentLabel: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#374151",
-  },
-  paymentAmount: {
-    fontSize: 20,
-    fontWeight: "bold",
+
+  confirmedBadgeText: {
     color: "#059669",
-  },
-  paymentButtonsContainer: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  confirmPaymentButton: {
-    flex: 1,
-    backgroundColor: "#059669",
-    borderRadius: 8,
-    paddingVertical: 10,
-    alignItems: "center",
-  },
-  confirmPaymentButtonText: {
-    color: "#fff",
+    fontSize: 16,
     fontWeight: "700",
-    fontSize: 14,
   },
-  editPaymentButton: {
-    flex: 1,
-    backgroundColor: "#F59E0B",
-    borderRadius: 8,
-    paddingVertical: 10,
-    alignItems: "center",
+  
+  address: { 
+    color: "#64748B", 
+    fontSize: 16, 
+    lineHeight: 22
   },
-  editPaymentButtonText: {
-    color: "#fff",
+  
+  subsection: { 
+    marginTop: 24 
+  },
+  
+  sectionTitle: { 
+    fontSize: 18, 
+    fontWeight: "700", 
+    marginBottom: 12, 
+    color: "#1E293B" 
+  },
+
+  itemPriceInput: {
+    fontSize: 18,
     fontWeight: "700",
-    fontSize: 14,
-  },
-  paymentReceivedText: {
-    fontSize: 14,
-    fontWeight: "600",
     color: "#059669",
-    marginTop: 8,
     textAlign: "center",
+    minWidth: 60,
+    padding: 0,
+    flex: 1, // ✅ ADD: Take remaining space in price container
   },
-  productNameWithIcon: {
-    flexDirection: "row",
+  
+  itemPriceInputDisabled: {
+    color: "#9CA3AF",
+    backgroundColor: "#F9FAFB",
+  },
+
+  addProductsButton: {
+    backgroundColor: "#2563EB",
+    borderRadius: 10,
+    padding: 18,
     alignItems: "center",
+    marginTop: 20,
+  },
+
+  addProductsButtonDisabled: {
+    backgroundColor: "#10B981",
+  },
+  
+  addProductsButtonText: {
+    color: "white",
+    fontWeight: "700",
+    fontSize: 18,
+  },
+
+  totalPaymentContainer: {
+    backgroundColor: "#EFF6FF",
+    borderRadius: 12,
+    padding: 20,
+    borderWidth: 2,
+    borderColor: "#2563EB",
+    alignItems: "center",
+  },
+  
+  totalPaymentAmount: {
+    fontSize: 28,
+    fontWeight: "bold",
+    color: "#2563EB",
     marginBottom: 4,
   },
-  productIcon: {
-    fontSize: 20,
-    marginRight: 8,
+  
+  totalPaymentLabel: {
+    fontSize: 16,
+    color: "#64748B",
+    fontWeight: "500",
   },
-  productIconImage: {
-    width: 20,
-    height: 20,
-    marginRight: 8,
-    resizeMode: "contain",
+
+  fixedButtonContainer: {
+    position: "absolute",
+    left: 18,
+    right: 18,
+    zIndex: 100,
   },
+  
+  confirmButton: {
+    backgroundColor: "#2563EB",
+    borderRadius: 12,
+    padding: 18,
+    alignItems: "center",
+    elevation: 8,
+    shadowColor: "#2563EB",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+
+  confirmButtonProcessing: {
+    backgroundColor: "#F59E0B",
+  },
+  
+  confirmButtonText: {
+    color: "white",
+    fontWeight: "700",
+    fontSize: 18,
+  },
+
+
+  quantityLabel: {
+    fontSize: 14,
+    color: "#6B7280",
+    fontWeight: "500",
+    marginBottom: 4,
+  },
+
+  priceLabel: {
+    fontSize: 14,
+    color: "#6B7280",
+    fontWeight: "500",
+    marginBottom: 4,
+  },
+
+  priceInputWrapper: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F3F4F6",
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: "#D1FAE5",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    minWidth: 120, // Fixed width for price input
+  },
+
+  priceInput: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#059669",
+    textAlign: "right",
+    flex: 1,
+    padding: 0,
+    margin: 0,
+  },
+  
 })
-
-

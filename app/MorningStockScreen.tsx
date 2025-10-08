@@ -2,7 +2,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -62,10 +62,14 @@ const MorningStockScreen = () => {
         })
         const result = await response.json()
         if (result.success && Array.isArray(result.data)) {
-          setProducts(result.data)
+          // ✅ SAFETY CHECK: Filter out products without inventory
+// ✅ FIXED: Properly typed parameter
+const validProducts = result.data.filter((p: Product) => p && p.inventory && p.inventory.inventoryId)
+          setProducts(validProducts)
+          
           // Initialize quantities using inventoryId as key
           const initial: {[key: number]: string} = {}
-          result.data.forEach((p: Product) => {
+          validProducts.forEach((p: Product) => {
             initial[p.inventory.inventoryId] = '' // ✅ Use inventoryId as key
           })
           setQuantities(initial)

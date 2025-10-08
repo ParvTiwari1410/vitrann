@@ -2,9 +2,10 @@
   "expo": {
     "name": "वितरण",
     "slug": "MyDiaryApp",
+    "owner": "jhalak_09",
     "version": "1.0.0",
     "orientation": "portrait",
-     "icon": "./assets/images/logo.png",
+    "icon": "./assets/images/icon.png",
     "scheme": "mydiaryapp",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -13,7 +14,7 @@
     },
     "android": {
       "adaptiveIcon": {
-       "foregroundImage": "./assets/images/logo.png",
+        "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#000000"
       },
       "edgeToEdgeEnabled": true,
@@ -22,14 +23,14 @@
     "web": {
       "bundler": "metro",
       "output": "static",
-      "favicon": "./assets/images/logo.png"
+      "favicon": "./assets/images/icon.png"
     },
     "plugins": [
       "expo-router",
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/logo.png",
+          "image": "./assets/images/icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
@@ -41,9 +42,8 @@
     },
     "extra": {
       "router": {},
-      
       "eas": {
-        "projectId": "ae8597a8-8cf6-4de9-a584-8fd00e784b7d"
+        "projectId": "7b286b74-4544-49d7-85e7-1b169006119e"
       }
     }
   }

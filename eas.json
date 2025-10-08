@@ -12,7 +12,10 @@
       "distribution": "internal"
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": {
+        "API_BASE_URL": "http://3.110.165.143:4000/api"
+      }
     }
   },
   "submit": {

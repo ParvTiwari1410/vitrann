@@ -22,7 +22,7 @@ import {
 import Toast from 'react-native-toast-message'
 
 // Get API URL from environment variables
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000/api'
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL 
 
 // Interface for backend response
 interface WorkerLoginResponse {

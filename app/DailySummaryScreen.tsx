@@ -53,7 +53,7 @@ type DeliveryData = {
   pickedQuantity: number
   remainingQuantity: number
   deliveredQuantity: number
-  productName: string
+  productName: string 
 }
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL

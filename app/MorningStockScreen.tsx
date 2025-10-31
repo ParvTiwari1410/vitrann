@@ -1,6 +1,7 @@
 "use client"
 
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import Constants from 'expo-constants'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useEffect, useState } from 'react'
 import {
@@ -37,7 +38,8 @@ const MorningStockScreen = () => {
   const router = useRouter()
   const workerId = params.workerId as string
 
-  const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL
+  const API_BASE_URL = Constants.expoConfig?.extra?.EXPO_PUBLIC_API_BASE_URL ?? 'https://theinfranova.com/api';
+
 
   const [products, setProducts] = useState<Product[]>([])
   const [quantities, setQuantities] = useState<{[key: number]: string}>({}) // Key is inventoryId now
@@ -48,6 +50,7 @@ const MorningStockScreen = () => {
 
   // Fetch worker name and products on mount
   useEffect(() => {
+    console.log('Fetching products for workerId:', workerId)
     const loadData = async () => {
       try {
         const name = await AsyncStorage.getItem('workerName')

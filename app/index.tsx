@@ -4,9 +4,11 @@
 
 import { Ionicons } from "@expo/vector-icons"
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import Constants from 'expo-constants'
 import { LinearGradient } from "expo-linear-gradient"
 import { useRouter } from "expo-router"
 import { useState } from "react"
+
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -22,7 +24,7 @@ import {
 import Toast from 'react-native-toast-message'
 
 // Get API URL from environment variables
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL 
+const API_BASE_URL = Constants.expoConfig?.extra?.EXPO_PUBLIC_API_BASE_URL ?? 'https://theinfranova.com/api';
 
 // Interface for backend response
 interface WorkerLoginResponse {
@@ -85,12 +87,13 @@ export default function Index() {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
         },
+        
         body: JSON.stringify({
           phoneNumber: phoneNumber.trim(),
           password: password,
         }),
       });
-
+      console.log("Connecting to backend:", API_BASE_URL)
       const data: WorkerLoginResponse = await response.json();
 
       if (data.success === true && data.token && data.worker) {
@@ -131,6 +134,10 @@ export default function Index() {
   }
 
   return (
+    
+    console.log("App started"),
+          console.log("Connecting to backend:", API_BASE_URL)
+,
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor="#F8F9FA" />
       <LinearGradient

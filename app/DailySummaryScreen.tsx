@@ -1,6 +1,7 @@
 "use client"
 
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import Constants from 'expo-constants'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useEffect, useState } from 'react'
 import {
@@ -56,7 +57,7 @@ type DeliveryData = {
   productName: string 
 }
 
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL
+const API_BASE_URL = Constants.expoConfig?.extra?.EXPO_PUBLIC_API_BASE_URL ?? 'https://theinfranova.com/api';
 
 // API helper function
 const makeAuthenticatedRequest = async (url: string, options: RequestInit = {}) => {

@@ -1,24 +1,27 @@
-{
-  "cli": {
-    "version": ">= 16.17.4",
-    "appVersionSource": "remote"
-  },
-  "build": {
-    "development": {
-      "developmentClient": true,
-      "distribution": "internal"
+  {
+    "cli": {
+      "version": ">= 16.17.4",
+      "appVersionSource": "remote"
     },
-    "preview": {
-      "distribution": "internal"
-    },
-    "production": {
-      "autoIncrement": true,
-      "env": {
-        "API_BASE_URL": "http://3.110.165.143:4000/api"
+    "build": {
+      "development": {
+        "developmentClient": true,
+        "distribution": "internal"
+      },
+      "preview": {
+        "distribution": "internal",
+        "environment": {
+          "EXPO_PUBLIC_API_BASE_URL": "http://3.110.165.143:4000/api"
+        }
+      },
+      "production": {
+        "autoIncrement": true,
+        "environment": {
+          "EXPO_PUBLIC_API_BASE_URL": "https://theinfranova.com/api"
+        }
       }
+    },
+    "submit": {
+      "production": {}
     }
-  },
-  "submit": {
-    "production": {}
   }
-}

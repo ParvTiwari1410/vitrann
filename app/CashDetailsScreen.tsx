@@ -1,6 +1,7 @@
 "use client"
 
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import Constants from 'expo-constants'
 import { useLocalSearchParams, useRouter } from "expo-router"
 import { useMemo, useState } from "react"
 import {
@@ -34,7 +35,7 @@ const coins = [
   { label: "₹1", value: 1, color: "#87CEEB" },
 ]
 
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL
+const API_BASE_URL = Constants.expoConfig?.extra?.EXPO_PUBLIC_API_BASE_URL ?? 'https://theinfranova.com/api';
 
 // API function to submit total amount
 const submitTotalAmount = async (amount: number) => {

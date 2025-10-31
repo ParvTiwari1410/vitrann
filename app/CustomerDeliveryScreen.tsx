@@ -1,6 +1,7 @@
 "use client"
 
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import Constants from 'expo-constants'
 import { useLocalSearchParams, useRouter } from "expo-router"
 import { useEffect, useState } from "react"
 import {
@@ -17,7 +18,6 @@ import {
 } from "react-native"
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import Toast from 'react-native-toast-message'
-
 import { ProductDeliveryModal } from "./CDS/ProductDeliveryModal"
 
 // Updated Types with tracking
@@ -86,7 +86,7 @@ type CustomerForDelivery = {
   sequenceNumber: number
 }
 
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL
+const API_BASE_URL = Constants.expoConfig?.extra?.EXPO_PUBLIC_API_BASE_URL ?? 'https://theinfranova.com/api';
 
 const makeAuthenticatedRequest = async (url: string, options: RequestInit = {}) => {
   try {
@@ -121,6 +121,7 @@ const makeAuthenticatedRequest = async (url: string, options: RequestInit = {}) 
 }
 
 const processDeliveryRequest = async (deliveryData: any) => {
+  console.log(API_BASE_URL)
   try {
     const response = await makeAuthenticatedRequest('/deliveries/process', {
       method: 'POST',

@@ -84,6 +84,23 @@ type CustomerForDelivery = {
   customerId: number
   deliveryConfirmed: boolean
   sequenceNumber: number
+  associatedProductIds?: number[] // Products associated with this customer
+}
+
+type CustomerProductRelation = {
+  id: number
+  customerId: number
+  productId: number | null
+  quantityAssociated: number
+  fromDate: string
+  thruDate: string | null
+  product: {
+    productId: number
+    productName: string
+    currentProductPrice: number
+    storeId: string
+    imageUrl: string | null
+  } | null
 }
 
 const API_BASE_URL = Constants.expoConfig?.extra?.EXPO_PUBLIC_API_BASE_URL ?? 'https://theinfranova.com/api';
@@ -141,11 +158,13 @@ export default function CustomerDeliveryScreen() {
 
   const [customers, setCustomers] = useState<CustomerForDelivery[]>([])
   const [workerInventory, setWorkerInventory] = useState<WorkerInventory[]>([])
+  const [customerProductRelations, setCustomerProductRelations] = useState<CustomerProductRelation[]>([])
   const [selectedIdx, setSelectedIdx] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [productDeliveryModal, setProductDeliveryModal] = useState(false)
   const [processingDelivery, setProcessingDelivery] = useState(false)
+  const [associatedProductQuantities, setAssociatedProductQuantities] = useState<Record<string, string>>({})
 
   useEffect(() => {
     fetchDataFromAPI()
@@ -163,23 +182,40 @@ export default function CustomerDeliveryScreen() {
 
       const customersResponse = await makeAuthenticatedRequest('/daily-activity-ci/my-customers')
       const inventoryResponse = await makeAuthenticatedRequest('/daily-activity-ci/my-inventory')
+      const relationsResponse = await makeAuthenticatedRequest('/relations/customer-products')
 
-      if (customersResponse.success && inventoryResponse.success) {
+      if (customersResponse.success && inventoryResponse.success && relationsResponse.success) {
         const sortedCustomers = customersResponse.data.sort((a: Customer, b: Customer) => 
           a.sequenceNumber - b.sequenceNumber
         )
 
-        const transformedCustomers: CustomerForDelivery[] = sortedCustomers.map((item: Customer) => ({
-          id: item.customer.customerId.toString(),
-          name: `${item.customer.firstName} ${item.customer.lastName || ''}`.trim(),
-          type: item.customer.classification === 'B2B' ? 'B2B' : 'B2C',
-          address: `${item.customer.address1}${item.customer.address2 ? ', ' + item.customer.address2 : ''}, ${item.customer.city || ''} ${item.customer.pincode || ''}`.trim(),
-          deliveredItems: [],
-          paymentReceived: 0,
-          customerId: item.customer.customerId,
-          deliveryConfirmed: false,
-          sequenceNumber: item.sequenceNumber
-        }))
+        // Store customer-product relations
+        const relations = relationsResponse.data as CustomerProductRelation[]
+        setCustomerProductRelations(relations)
+
+        // Filter relations to only active ones (thruDate is null)
+        const activeRelations = relations.filter(rel => rel.thruDate === null && rel.productId !== null)
+
+        const transformedCustomers: CustomerForDelivery[] = sortedCustomers.map((item: Customer) => {
+          // Get associated product IDs for this customer
+          const associatedProducts = activeRelations
+            .filter(rel => rel.customerId === item.customer.customerId)
+            .map(rel => rel.productId!)
+            .filter(id => id !== null)
+
+          return {
+            id: item.customer.customerId.toString(),
+            name: `${item.customer.firstName} ${item.customer.lastName || ''}`.trim(),
+            type: item.customer.classification === 'B2B' ? 'B2B' : 'B2C',
+            address: `${item.customer.address1}${item.customer.address2 ? ', ' + item.customer.address2 : ''}, ${item.customer.city || ''} ${item.customer.pincode || ''}`.trim(),
+            deliveredItems: [],
+            paymentReceived: 0,
+            customerId: item.customer.customerId,
+            deliveryConfirmed: false,
+            sequenceNumber: item.sequenceNumber,
+            associatedProductIds: associatedProducts
+          }
+        })
 
         setCustomers(transformedCustomers)
         setWorkerInventory(inventoryResponse.data)
@@ -215,6 +251,140 @@ export default function CustomerDeliveryScreen() {
 
   const handleTabPress = (idx: number) => {
     setSelectedIdx(idx)
+  }
+
+  // Get associated products for current customer (products from workerInventory that match associatedProductIds)
+  const getAssociatedProducts = (): WorkerInventory[] => {
+    if (!customer?.associatedProductIds || customer.associatedProductIds.length === 0) {
+      return []
+    }
+
+    return workerInventory.filter(item => {
+      const productId = item.inventory?.product.productId
+      return productId && 
+             customer.associatedProductIds!.includes(productId) &&
+             (item.totalPickedQuantity || 0) > 0
+    })
+  }
+
+  // Get unassociated products (products not in customer's associatedProductIds)
+  const getUnassociatedProducts = (): WorkerInventory[] => {
+    if (!customer?.associatedProductIds || customer.associatedProductIds.length === 0) {
+      // If no associations exist, show all products (fallback - allows adding any product)
+      return workerInventory.filter(item => (item.totalPickedQuantity || 0) > 0)
+    }
+
+    return workerInventory.filter(item => {
+      const productId = item.inventory?.product.productId
+      return productId && 
+             !customer.associatedProductIds!.includes(productId) &&
+             (item.totalPickedQuantity || 0) > 0
+    })
+  }
+
+  // Check if customer has unassociated products available
+  const hasUnassociatedProducts = (): boolean => {
+    const unassociated = getUnassociatedProducts()
+    return unassociated.length > 0
+  }
+
+  // Handle adding associated product directly (without modal)
+  const handleAddAssociatedProduct = (inventoryItem: WorkerInventory, quantity?: number) => {
+    if (!inventoryItem.inventory?.product) return
+
+    const product = inventoryItem.inventory.product
+    const availableQty = inventoryItem.totalPickedQuantity || 0
+    
+    // Calculate total delivered across all customers for this product
+    const totalDelivered = customers.reduce(
+      (sum, cust) =>
+        sum +
+        cust.deliveredItems
+          .filter(item => item.productId === product.productId)
+          .reduce((subSum, item) => subSum + item.qty, 0),
+      0
+    )
+
+    const availableForThisProduct = availableQty - totalDelivered
+
+    if (availableForThisProduct <= 0) {
+      Toast.show({
+        type: 'error',
+        text1: 'No Stock Available',
+        text2: `${product.productName} is out of stock`,
+        visibilityTime: 2000,
+      })
+      return
+    }
+
+    // Use provided quantity or get from association, but limit to available stock
+    const quantityToUse = quantity || Math.min(
+      customerProductRelations.find(
+        rel => rel.customerId === customer.customerId && 
+               rel.productId === product.productId &&
+               rel.thruDate === null
+      )?.quantityAssociated || 1,
+      availableForThisProduct
+    )
+
+    if (quantityToUse <= 0 || quantityToUse > availableForThisProduct) {
+      Toast.show({
+        type: 'error',
+        text1: 'Invalid Quantity',
+        text2: `Please enter a quantity between 1 and ${availableForThisProduct}`,
+        visibilityTime: 2000,
+      })
+      return
+    }
+
+    // Create item with specified quantity
+    const newDeliveredItem: DeliveredItem = {
+      name: product.productName,
+      qty: quantityToUse,
+      productId: product.productId,
+      price: Number(product.currentProductPrice) * quantityToUse,
+      originalPrice: Number(product.currentProductPrice),
+      isEdited: false
+    }
+
+    // Check if product is already added
+    const alreadyAdded = customer.deliveredItems.some(
+      item => item.productId === product.productId
+    )
+
+    if (alreadyAdded) {
+      Toast.show({
+        type: 'info',
+        text1: 'Already Added',
+        text2: `${product.productName} is already in the delivery list`,
+        visibilityTime: 2000,
+      })
+      return
+    }
+
+    const updatedDeliveredItems = [...customer.deliveredItems, newDeliveredItem]
+    const updatedCustomers = [...customers]
+    updatedCustomers[selectedIdx] = {
+      ...updatedCustomers[selectedIdx],
+      deliveredItems: updatedDeliveredItems
+    }
+
+    setCustomers(updatedCustomers)
+
+    // Clear quantity input after adding
+    const quantityKey = `${customer.customerId}-${product.productId}`
+    setAssociatedProductQuantities(prev => {
+      const newState = { ...prev }
+      delete newState[quantityKey]
+      return newState
+    })
+
+    Toast.show({
+      type: 'success',
+      text1: 'Product Added',
+      text2: `${product.productName} (${quantityToUse} packets) added`,
+      visibilityTime: 1500,
+    })
   }
 
   // Handle per-item TOTAL amount change (not per-unit price)
@@ -457,80 +627,184 @@ export default function CustomerDeliveryScreen() {
               <Text style={styles.address}>{customer.address}</Text>
             </View>
 
-            {/* Items with Individual Editable Totals - MOBILE OPTIMIZED */}
-{customer.deliveredItems.length > 0 && (
-  <View style={styles.subsection}>
-    <Text style={styles.sectionTitle}>Items ({customer.deliveredItems.length})</Text>
-    <View style={styles.itemsContainer}>
-      {customer.deliveredItems.map((item, idx) => (
-        <View key={idx} style={styles.itemCard}>
-          {/* Product Name - Full Width */}
-          <Text style={styles.itemName}>{item.name}</Text>
-          
-          {/* Quantity and Price in Responsive Row */}
-          <View style={styles.itemDetailsRow}>
-            {/* Quantity Section - Takes 60% of width */}
-            <View style={styles.quantitySection}>
-              <Text style={styles.detailLabel}>Quantity:</Text>
-              <Text style={styles.quantityValue}>{item.qty} packets</Text>
-            </View>
-            
-            {/* Price Section - Takes 40% of width */}
-            <View style={styles.priceSection}>
-              <Text style={styles.detailLabel}>Total:</Text>
-              <View style={styles.priceInputContainer}>
-                <Text style={styles.rupeeSymbol}>₹</Text>
-                <TextInput
-                  style={[
-                    styles.responsivePriceInput,
-                    customer.deliveryConfirmed && styles.priceInputDisabled
-                  ]}
-                  value={item.price.toString()}
-                  placeholder={`${item.originalPrice * item.qty}`}
-                  onChangeText={(newTotal) => handleItemTotalChange(idx, newTotal)}
-                  keyboardType="numeric"
-                  editable={!customer.deliveryConfirmed}
-                />
-              </View>
-            </View>
-          </View>
-        </View>
-      ))}
-      
-      {/* Grand Total */}
-      <View style={styles.grandTotalContainer}>
-        <Text style={styles.grandTotalLabel}>Grand Total:</Text>
-        <Text style={styles.grandTotalAmount}>₹{totalPayment}</Text>
-      </View>
-    </View>
-  </View>
-)}
+            {/* Associated Products - Show directly on customer card */}
+            {getAssociatedProducts().length > 0 && (
+              <View style={styles.subsection}>
+                <Text style={styles.sectionTitle}>Associated Products</Text>
+                <View style={styles.associatedProductsContainer}>
+                  {getAssociatedProducts().map((inventoryItem, idx) => {
+                    const product = inventoryItem.inventory?.product
+                    if (!product) return null
 
-            {/* Add Products Button */}
-            <TouchableOpacity
-              style={[
-                styles.addProductsButton,
-                customer.deliveryConfirmed && styles.addProductsButtonDisabled
-              ]}
-              onPress={() => setProductDeliveryModal(true)}
-              disabled={customer.deliveryConfirmed}
-            >
-              <Text style={styles.addProductsButtonText}>
-                {customer.deliveryConfirmed ? '✓ Products Confirmed' : '📦 Add Products'}
-              </Text>
-            </TouchableOpacity>
+                    // Check if already added to delivery
+                    const isAlreadyAdded = customer.deliveredItems.some(
+                      item => item.productId === product.productId
+                    )
+
+                    // Calculate available quantity
+                    const totalDelivered = customers.reduce(
+                      (sum, cust) =>
+                        sum +
+                        cust.deliveredItems
+                          .filter(item => item.productId === product.productId)
+                          .reduce((subSum, item) => subSum + item.qty, 0),
+                      0
+                    )
+                    const availableQty = (inventoryItem.totalPickedQuantity || 0) - totalDelivered
+
+                    // Get associated quantity from relation (default quantity)
+                    const associatedQty = customerProductRelations.find(
+                      rel => rel.customerId === customer.customerId && 
+                             rel.productId === product.productId &&
+                             rel.thruDate === null
+                    )?.quantityAssociated || 0
+
+                    // Get current quantity from state or use associated quantity as default
+                    const quantityKey = `${customer.customerId}-${product.productId}`
+                    const currentQuantity = associatedProductQuantities[quantityKey] || (associatedQty > 0 ? associatedQty.toString() : '')
+
+                    return (
+                      <View
+                        key={`associated-${product.productId}`}
+                        style={[
+                          styles.associatedProductCard,
+                          isAlreadyAdded && styles.associatedProductCardAdded,
+                          (availableQty <= 0 || customer.deliveryConfirmed) && styles.associatedProductCardDisabled
+                        ]}
+                      >
+                        <View style={styles.associatedProductInfo}>
+                          <Text style={styles.associatedProductName} numberOfLines={1}>{product.productName}</Text>
+                          <Text style={styles.associatedProductDetails} numberOfLines={1}>
+                            {isAlreadyAdded ? '✓ Added' : `Available: ${availableQty > 0 ? availableQty : 0}`}
+                          </Text>
+                          <Text style={styles.associatedProductPrice} numberOfLines={1}>
+                            ₹{Number(product.currentProductPrice)}/packet
+                          </Text>
+                        </View>
+                        
+                        {!isAlreadyAdded && availableQty > 0 && !customer.deliveryConfirmed && (
+                          <View style={styles.associatedProductQuantitySection}>
+                            <TextInput
+                              style={styles.associatedProductQuantityInput}
+                              value={currentQuantity}
+                              placeholder={associatedQty > 0 ? associatedQty.toString() : '0'}
+                              onChangeText={(text) => {
+                                const numText = text.replace(/[^0-9]/g, '')
+                                const numValue = parseInt(numText) || 0
+                                if (numValue <= availableQty || numText === '') {
+                                  setAssociatedProductQuantities(prev => ({
+                                    ...prev,
+                                    [quantityKey]: numText
+                                  }))
+                                }
+                              }}
+                              keyboardType="numeric"
+                              maxLength={3}
+                            />
+                            <TouchableOpacity
+                              style={[
+                                styles.addProductButton,
+                                (!currentQuantity || parseInt(currentQuantity) <= 0) && styles.addProductButtonDisabled
+                              ]}
+                              onPress={() => {
+                                const qty = parseInt(currentQuantity) || 0
+                                if (qty > 0 && qty <= availableQty) {
+                                  handleAddAssociatedProduct(inventoryItem, qty)
+                                }
+                              }}
+                              disabled={!currentQuantity || parseInt(currentQuantity) <= 0 || parseInt(currentQuantity) > availableQty}
+                            >
+                              <Text style={styles.addProductButtonText}>Add</Text>
+                            </TouchableOpacity>
+                          </View>
+                        )}
+                        
+                        {isAlreadyAdded && (
+                          <View style={styles.associatedProductAddedBadge}>
+                            <Text style={styles.associatedProductAddedText}>✓</Text>
+                          </View>
+                        )}
+                      </View>
+                    )
+                  })}
+                </View>
+              </View>
+            )}
+
+            {/* Items with Individual Editable Totals - MOBILE OPTIMIZED */}
+            {customer.deliveredItems.length > 0 && (
+              <View style={styles.subsection}>
+                <Text style={styles.sectionTitle}>Items ({customer.deliveredItems.length})</Text>
+                <View style={styles.itemsContainer}>
+                  {customer.deliveredItems.map((item, idx) => (
+                    <View key={idx} style={styles.itemCard}>
+                      {/* Product Name - Full Width */}
+                      <Text style={styles.itemName}>{item.name}</Text>
+                      
+                      {/* Quantity and Price in Responsive Row */}
+                      <View style={styles.itemDetailsRow}>
+                        {/* Quantity Section - Takes 60% of width */}
+                        <View style={styles.quantitySection}>
+                          <Text style={styles.detailLabel}>Quantity:</Text>
+                          <Text style={styles.quantityValue}>{item.qty} packets</Text>
+                        </View>
+                        
+                        {/* Price Section - Takes 40% of width */}
+                        <View style={styles.priceSection}>
+                          <Text style={styles.detailLabel}>Total:</Text>
+                          <View style={styles.priceInputContainer}>
+                            <Text style={styles.rupeeSymbol}>₹</Text>
+                            <TextInput
+                              style={[
+                                styles.responsivePriceInput,
+                                customer.deliveryConfirmed && styles.priceInputDisabled
+                              ]}
+                              value={item.price.toString()}
+                              placeholder={`${item.originalPrice * item.qty}`}
+                              onChangeText={(newTotal) => handleItemTotalChange(idx, newTotal)}
+                              keyboardType="numeric"
+                              editable={!customer.deliveryConfirmed}
+                            />
+                          </View>
+                        </View>
+                      </View>
+                    </View>
+                  ))}
+                  
+                  {/* Grand Total */}
+                  <View style={styles.grandTotalContainer}>
+                    <Text style={styles.grandTotalLabel}>Grand Total:</Text>
+                    <Text style={styles.grandTotalAmount}>₹{totalPayment}</Text>
+                  </View>
+                </View>
+              </View>
+            )}
+
+            {/* Add Products Button - Always visible when delivery not confirmed */}
+            {!customer.deliveryConfirmed && (
+              <TouchableOpacity
+                style={styles.addProductsButton}
+                onPress={() => setProductDeliveryModal(true)}
+              >
+                <Text style={styles.addProductsButtonText}>
+                  {customer.associatedProductIds && customer.associatedProductIds.length > 0 
+                    ? '📦 Add Other Products' 
+                    : '📦 Add Products'}
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* Product Delivery Modal */}
+      {/* Product Delivery Modal - Only shows unassociated products */}
       <ProductDeliveryModal
         visible={productDeliveryModal}
         customer={customer}
         customers={customers}
         setCustomers={setCustomers}
         selectedIdx={selectedIdx}
-        workerInventory={workerInventory}
+        workerInventory={getUnassociatedProducts()}
         onClose={() => setProductDeliveryModal(false)}
       />
 
@@ -943,6 +1217,139 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#64748B",
     fontWeight: "500",
+  },
+
+  // Associated Products Styles
+  associatedProductsContainer: {
+    gap: 8,
+    marginTop: 8,
+  },
+
+  associatedProductCard: {
+    backgroundColor: "#F0F9FF",
+    borderRadius: 8,
+    padding: 10,
+    borderWidth: 1.5,
+    borderColor: "#3B82F6",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    shadowColor: "#3B82F6",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+
+  associatedProductCardAdded: {
+    backgroundColor: "#ECFDF5",
+    borderColor: "#10B981",
+  },
+
+  associatedProductCardDisabled: {
+    backgroundColor: "#F3F4F6",
+    borderColor: "#D1D5DB",
+    opacity: 0.6,
+  },
+
+  associatedProductInfo: {
+    flex: 1,
+    marginRight: 8,
+    minWidth: 0, // Allow flex shrinking
+  },
+
+  associatedProductName: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#1E293B",
+    marginBottom: 2,
+  },
+
+  associatedProductDetails: {
+    fontSize: 11,
+    color: "#64748B",
+    fontWeight: "500",
+    marginBottom: 2,
+  },
+
+  associatedProductPrice: {
+    fontSize: 11,
+    color: "#059669",
+    fontWeight: "600",
+  },
+
+  addProductIcon: {
+    fontSize: 24,
+    fontWeight: "bold",
+    color: "#3B82F6",
+    marginLeft: 12,
+    width: 32,
+    height: 32,
+    textAlign: "center",
+    lineHeight: 32,
+    backgroundColor: "#DBEAFE",
+    borderRadius: 16,
+  },
+
+  associatedProductQuantitySection: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+
+  associatedProductQuantityInput: {
+    borderWidth: 1.5,
+    borderColor: "#3B82F6",
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    fontSize: 13,
+    fontWeight: "600",
+    textAlign: "center",
+    backgroundColor: "#fff",
+    width: 50,
+  },
+
+  packetsLabelSmall: {
+    fontSize: 11,
+    color: "#64748B",
+    fontWeight: "500",
+  },
+
+  addProductButton: {
+    backgroundColor: "#10B981",
+    borderRadius: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    minWidth: 50,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  addProductButtonDisabled: {
+    backgroundColor: "#D1D5DB",
+  },
+
+  addProductButtonText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 12,
+  },
+
+  associatedProductAddedBadge: {
+    backgroundColor: "#ECFDF5",
+    borderColor: "#10B981",
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+
+  associatedProductAddedText: {
+    color: "#059669",
+    fontSize: 12,
+    fontWeight: "700",
+    textAlign: "center",
   },
 
   fixedButtonContainer: {

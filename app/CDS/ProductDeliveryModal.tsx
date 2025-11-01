@@ -200,8 +200,11 @@ export const ProductDeliveryModal: React.FC<ProductDeliveryModalProps> = ({
         <View style={styles.fullModal}>
           {/* Header */}
           <View style={styles.modalHeader}>
-            <Text style={styles.modalHeading}>Add Products</Text>
+            <Text style={styles.modalHeading}>Add Other Products</Text>
             <Text style={styles.modalSubheading}>{customer.name}</Text>
+            <Text style={styles.modalDescription}>
+              Select products not associated with this customer
+            </Text>
             <TouchableOpacity style={styles.closeButton} onPress={onClose}>
               <Text style={styles.closeButtonText}>✕</Text>
             </TouchableOpacity>
@@ -365,6 +368,13 @@ const styles = StyleSheet.create({
     color: "#64748B",
     textAlign: "center",
     marginTop: 4,
+  },
+  modalDescription: {
+    fontSize: 12,
+    color: "#94A3B8",
+    textAlign: "center",
+    marginTop: 4,
+    fontStyle: "italic",
   },
   closeButton: {
     position: "absolute",

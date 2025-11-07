@@ -3,7 +3,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import Constants from 'expo-constants'
 import { useLocalSearchParams, useRouter } from "expo-router"
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -15,6 +15,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  Dimensions,
 } from "react-native"
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import Toast from 'react-native-toast-message'
@@ -155,6 +156,10 @@ export default function CustomerDeliveryScreen() {
   const router = useRouter()
   const insets = useSafeAreaInsets()
 
+  const tabScrollViewRef = useRef<ScrollView>(null);
+  const tabLayouts = useRef<Record<number, { x: number, width: number }>>({});
+  const { width: screenWidth } = Dimensions.get('window');
+
   const [customers, setCustomers] = useState<CustomerForDelivery[]>([])
   const [workerInventory, setWorkerInventory] = useState<WorkerInventory[]>([])
   const [customerProductRelations, setCustomerProductRelations] = useState<CustomerProductRelation[]>([])
@@ -168,6 +173,23 @@ export default function CustomerDeliveryScreen() {
   useEffect(() => {
     fetchDataFromAPI()
   }, [])
+
+  useEffect(() => {
+    if (customers.length === 0 || !tabScrollViewRef.current) {
+      return;
+    }
+
+    const layout = tabLayouts.current[selectedIdx];
+    if (!layout) {
+      return;
+    }
+
+    const scrollToX = layout.x + (layout.width / 2) - (screenWidth / 2);
+    const clampedScrollToX = Math.max(0, scrollToX);
+
+    tabScrollViewRef.current.scrollTo({ x: clampedScrollToX, animated: true });
+
+  }, [selectedIdx, customers, screenWidth]);
 
   const fetchDataFromAPI = async () => {
     try {
@@ -643,7 +665,12 @@ export default function CustomerDeliveryScreen() {
       </View>
       
       <View style={styles.tabsContainer}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabs}>
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false} 
+          style={styles.tabs}
+          ref={tabScrollViewRef}
+        >
           {customers.map((c, idx) => (
             <TouchableOpacity
               key={c.id}
@@ -653,6 +680,10 @@ export default function CustomerDeliveryScreen() {
                 c.deliveryConfirmed && styles.confirmedTab
               ]}
               onPress={() => handleTabPress(idx)}
+              onLayout={(event) => {
+                const { x, width } = event.nativeEvent.layout;
+                tabLayouts.current[idx] = { x, width };
+              }}
             >
               <Text style={[
                 styles.tabText, 

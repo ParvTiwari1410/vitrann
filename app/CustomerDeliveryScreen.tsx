@@ -20,14 +20,13 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import Toast from 'react-native-toast-message'
 import { ProductDeliveryModal } from "./CDS/ProductDeliveryModal"
 
-// Updated Types with tracking
 type DeliveredItem = {
   name: string;
   qty: number;
   productId: number;
-  price: number;        // This is now TOTAL amount per item, not per unit
-  originalPrice: number; // Original per-unit price
-  isEdited: boolean;     // Track if user edited the total
+  price: number;
+  originalPrice: number;
+  isEdited: boolean;
 }
 
 type Customer = {
@@ -84,7 +83,7 @@ type CustomerForDelivery = {
   customerId: number
   deliveryConfirmed: boolean
   sequenceNumber: number
-  associatedProductIds?: number[] // Products associated with this customer
+  associatedProductIds?: number[]
 }
 
 type CustomerProductRelation = {
@@ -189,15 +188,12 @@ export default function CustomerDeliveryScreen() {
           a.sequenceNumber - b.sequenceNumber
         )
 
-        // Store customer-product relations
         const relations = relationsResponse.data as CustomerProductRelation[]
         setCustomerProductRelations(relations)
 
-        // Filter relations to only active ones (thruDate is null)
         const activeRelations = relations.filter(rel => rel.thruDate === null && rel.productId !== null)
 
         const transformedCustomers: CustomerForDelivery[] = sortedCustomers.map((item: Customer) => {
-          // Get associated product IDs for this customer
           const associatedProducts = activeRelations
             .filter(rel => rel.customerId === item.customer.customerId)
             .map(rel => rel.productId!)
@@ -253,7 +249,6 @@ export default function CustomerDeliveryScreen() {
     setSelectedIdx(idx)
   }
 
-  // Get associated products for current customer (products from workerInventory that match associatedProductIds)
   const getAssociatedProducts = (): WorkerInventory[] => {
     if (!customer?.associatedProductIds || customer.associatedProductIds.length === 0) {
       return []
@@ -267,10 +262,8 @@ export default function CustomerDeliveryScreen() {
     })
   }
 
-  // Get unassociated products (products not in customer's associatedProductIds)
   const getUnassociatedProducts = (): WorkerInventory[] => {
     if (!customer?.associatedProductIds || customer.associatedProductIds.length === 0) {
-      // If no associations exist, show all products (fallback - allows adding any product)
       return workerInventory.filter(item => (item.totalPickedQuantity || 0) > 0)
     }
 
@@ -282,20 +275,17 @@ export default function CustomerDeliveryScreen() {
     })
   }
 
-  // Check if customer has unassociated products available
   const hasUnassociatedProducts = (): boolean => {
     const unassociated = getUnassociatedProducts()
     return unassociated.length > 0
   }
 
-  // Handle adding associated product directly (without modal)
   const handleAddAssociatedProduct = (inventoryItem: WorkerInventory, quantity?: number) => {
     if (!inventoryItem.inventory?.product) return
 
     const product = inventoryItem.inventory.product
     const availableQty = inventoryItem.totalPickedQuantity || 0
     
-    // Calculate total delivered across all customers for this product
     const totalDelivered = customers.reduce(
       (sum, cust) =>
         sum +
@@ -317,7 +307,6 @@ export default function CustomerDeliveryScreen() {
       return
     }
 
-    // Use provided quantity or get from association, but limit to available stock
     const quantityToUse = quantity || Math.min(
       customerProductRelations.find(
         rel => rel.customerId === customer.customerId && 
@@ -337,7 +326,6 @@ export default function CustomerDeliveryScreen() {
       return
     }
 
-    // Create item with specified quantity
     const newDeliveredItem: DeliveredItem = {
       name: product.productName,
       qty: quantityToUse,
@@ -347,7 +335,6 @@ export default function CustomerDeliveryScreen() {
       isEdited: false
     }
 
-    // Check if product is already added
     const alreadyAdded = customer.deliveredItems.some(
       item => item.productId === product.productId
     )
@@ -371,7 +358,6 @@ export default function CustomerDeliveryScreen() {
 
     setCustomers(updatedCustomers)
 
-    // Clear quantity input after adding
     const quantityKey = `${customer.customerId}-${product.productId}`
     setAssociatedProductQuantities(prev => {
       const newState = { ...prev }
@@ -387,7 +373,6 @@ export default function CustomerDeliveryScreen() {
     })
   }
 
-  // Handle per-item TOTAL amount change (not per-unit price)
   const handleItemTotalChange = (itemIndex: number, newTotal: string) => {
     const totalAmount = Number(newTotal) || 0
     
@@ -395,8 +380,8 @@ export default function CustomerDeliveryScreen() {
     const updatedItems = [...customer.deliveredItems]
     updatedItems[itemIndex] = {
       ...updatedItems[itemIndex],
-      price: totalAmount,  // This is now the TOTAL amount for this item
-      isEdited: true       // Mark as edited
+      price: totalAmount,
+      isEdited: true
     }
     
     updatedCustomers[selectedIdx] = {
@@ -407,18 +392,92 @@ export default function CustomerDeliveryScreen() {
     setCustomers(updatedCustomers)
   }
 
-  // Calculate total payment from all items (items.price is already total per item)
+  const handleItemQuantityChange = (itemIndex: number, newQty: string) => {
+    const newQuantity = parseInt(newQty) || 0;
+
+    const updatedCustomers = [...customers];
+    const currentCustomer = updatedCustomers[selectedIdx];
+    const updatedItems = [...currentCustomer.deliveredItems];
+    const itemToUpdate = updatedItems[itemIndex];
+
+    if (!itemToUpdate) return;
+
+    const inventoryItem = workerInventory.find(
+      (inv) => inv.inventory?.product.productId === itemToUpdate.productId
+    );
+    const totalPicked = inventoryItem?.totalPickedQuantity || 0;
+
+    const totalDeliveredByAll = customers.reduce(
+      (sum, cust) =>
+        sum +
+        cust.deliveredItems
+          .filter((i) => i.productId === itemToUpdate.productId)
+          .reduce((s, i) => s + i.qty, 0),
+      0
+    );
+    
+    const deliveredElsewhere = totalDeliveredByAll - itemToUpdate.qty;
+    const maxAvailable = totalPicked - deliveredElsewhere;
+
+    if (newQuantity > maxAvailable) {
+      Toast.show({
+        type: 'error',
+        text1: 'Not Enough Stock',
+        text2: `You only have ${maxAvailable} available.`,
+        visibilityTime: 3000,
+      });
+      return;
+    }
+
+    updatedItems[itemIndex] = {
+      ...itemToUpdate,
+      qty: newQuantity,
+      price: itemToUpdate.isEdited
+        ? itemToUpdate.price
+        : itemToUpdate.originalPrice * newQuantity,
+    };
+
+    updatedCustomers[selectedIdx] = {
+      ...currentCustomer,
+      deliveredItems: updatedItems,
+    };
+
+    setCustomers(updatedCustomers);
+  };
+
+  const handleRemoveItem = (itemIndex: number) => {
+    const updatedCustomers = [...customers];
+    const currentCustomer = updatedCustomers[selectedIdx];
+    
+    const itemRemoved = currentCustomer.deliveredItems[itemIndex];
+
+    const updatedItems = currentCustomer.deliveredItems.filter(
+      (_, idx) => idx !== itemIndex
+    );
+
+    updatedCustomers[selectedIdx] = {
+      ...currentCustomer,
+      deliveredItems: updatedItems,
+    };
+
+    setCustomers(updatedCustomers);
+    
+    Toast.show({
+      type: 'info',
+      text1: 'Item Removed',
+      text2: `${itemRemoved.name} removed from list.`,
+      visibilityTime: 2000,
+    });
+  };
+
   const calculateTotalPayment = (deliveredItems: DeliveredItem[]) => {
     return deliveredItems.reduce((total, item) => total + item.price, 0)
   }
 
-  // Calculate correct bill amount based on editing status
   const calculateBillAmount = (item: DeliveredItem) => {
     if (item.isEdited) {
-      // If edited, use the edited amount directly (no multiplication)
       return item.price
     } else {
-      // If not edited, calculate: original_price * quantity
       return item.originalPrice * item.qty
     }
   }
@@ -475,7 +534,6 @@ export default function CustomerDeliveryScreen() {
         visibilityTime: 2000,
       })
 
-      // Process each item with correct calculation
       for (const item of customer.deliveredItems) {
         const inventoryItem = workerInventory.find(inv => 
           inv.inventory?.product.productId === item.productId
@@ -486,8 +544,8 @@ export default function CustomerDeliveryScreen() {
             customerId: customer.customerId,
             inventoryId: inventoryItem.inventoryId,
             deliveredQuantity: item.qty,
-            billAmount: calculateBillAmount(item), // ✅ CORRECT CALCULATION
-            isPriceCustomized: item.isEdited       // ✅ FLAG FOR BACKEND
+            billAmount: calculateBillAmount(item),
+            isPriceCustomized: item.isEdited
           }
 
           const response = await processDeliveryRequest(deliveryDto)
@@ -533,12 +591,11 @@ export default function CustomerDeliveryScreen() {
     return { completed, total }
   }
 
-  // Loading and Error screens remain the same...
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#2563EB" />
+          <ActivityIndicator size="large" color={theme.colors.primary} />
           <Text style={styles.loadingText}>Loading delivery route...</Text>
         </View>
       </SafeAreaView>
@@ -572,9 +629,8 @@ export default function CustomerDeliveryScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#F8F9FA" />
+      <StatusBar barStyle="dark-content" backgroundColor={theme.colors.background} />
       
-      {/* Progress Header */}
       <View style={styles.progressHeader}>
         <Text style={styles.progressText}>
           Delivery {progress.completed + 1} of {progress.total}
@@ -586,7 +642,6 @@ export default function CustomerDeliveryScreen() {
         </View>
       </View>
       
-      {/* Customer Navigation Tabs - NO SEQUENCE NUMBERS */}
       <View style={styles.tabsContainer}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabs}>
           {customers.map((c, idx) => (
@@ -611,37 +666,34 @@ export default function CustomerDeliveryScreen() {
         </ScrollView>
       </View>
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 100 }}>
+      <KeyboardAvoidingView style={styles.keyboardAvoidingView} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+        <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollViewContent}>
           <View style={styles.card}>
-            {/* Customer Info */}
+            
             <View style={styles.customerCard}>
               <View style={styles.customerHeader}>
-                <Text style={styles.name}>{customer.name}</Text>
+                <Text style={styles.customerName}>{customer.name}</Text>
                 {customer.deliveryConfirmed && (
                   <View style={styles.confirmedBadge}>
                     <Text style={styles.confirmedBadgeText}>✓</Text>
                   </View>
                 )}
               </View>
-              <Text style={styles.address}>{customer.address}</Text>
+              <Text style={styles.customerAddress}>{customer.address}</Text>
             </View>
 
-            {/* Associated Products - Show directly on customer card */}
             {getAssociatedProducts().length > 0 && (
               <View style={styles.subsection}>
                 <Text style={styles.sectionTitle}>Associated Products</Text>
-                <View style={styles.associatedProductsContainer}>
+                <View style={styles.listContainer}>
                   {getAssociatedProducts().map((inventoryItem, idx) => {
                     const product = inventoryItem.inventory?.product
                     if (!product) return null
 
-                    // Check if already added to delivery
                     const isAlreadyAdded = customer.deliveredItems.some(
                       item => item.productId === product.productId
                     )
 
-                    // Calculate available quantity
                     const totalDelivered = customers.reduce(
                       (sum, cust) =>
                         sum +
@@ -652,14 +704,12 @@ export default function CustomerDeliveryScreen() {
                     )
                     const availableQty = (inventoryItem.totalPickedQuantity || 0) - totalDelivered
 
-                    // Get associated quantity from relation (default quantity)
                     const associatedQty = customerProductRelations.find(
                       rel => rel.customerId === customer.customerId && 
                              rel.productId === product.productId &&
                              rel.thruDate === null
                     )?.quantityAssociated || 0
 
-                    // Get current quantity from state or use associated quantity as default
                     const quantityKey = `${customer.customerId}-${product.productId}`
                     const currentQuantity = associatedProductQuantities[quantityKey] || (associatedQty > 0 ? associatedQty.toString() : '')
 
@@ -667,44 +717,62 @@ export default function CustomerDeliveryScreen() {
                       <View
                         key={`associated-${product.productId}`}
                         style={[
-                          styles.associatedProductCard,
-                          isAlreadyAdded && styles.associatedProductCardAdded,
-                          (availableQty <= 0 || customer.deliveryConfirmed) && styles.associatedProductCardDisabled
+                          styles.listCard,
+                          styles.catalogCard,
+                          isAlreadyAdded && styles.catalogCardAdded,
+                          (availableQty <= 0 || customer.deliveryConfirmed) && styles.catalogCardDisabled
                         ]}
                       >
-                        <View style={styles.associatedProductInfo}>
-                          <Text style={styles.associatedProductName} numberOfLines={1}>{product.productName}</Text>
-                          <Text style={styles.associatedProductDetails} numberOfLines={1}>
+                        <View style={styles.listCardInfo}>
+                          <Text style={styles.listCardName}>{product.productName}</Text>
+                          <Text style={styles.listCardDetails} numberOfLines={1}>
                             {isAlreadyAdded ? '✓ Added' : `Available: ${availableQty > 0 ? availableQty : 0}`}
                           </Text>
-                          <Text style={styles.associatedProductPrice} numberOfLines={1}>
+                          <Text style={styles.listCardPrice} numberOfLines={1}>
                             ₹{Number(product.currentProductPrice)}/packet
                           </Text>
                         </View>
                         
                         {!isAlreadyAdded && availableQty > 0 && !customer.deliveryConfirmed && (
-                          <View style={styles.associatedProductQuantitySection}>
-                            <TextInput
-                              style={styles.associatedProductQuantityInput}
-                              value={currentQuantity}
-                              placeholder={associatedQty > 0 ? associatedQty.toString() : '0'}
-                              onChangeText={(text) => {
-                                const numText = text.replace(/[^0-9]/g, '')
-                                const numValue = parseInt(numText) || 0
-                                if (numValue <= availableQty || numText === '') {
-                                  setAssociatedProductQuantities(prev => ({
-                                    ...prev,
-                                    [quantityKey]: numText
-                                  }))
-                                }
-                              }}
-                              keyboardType="numeric"
-                              maxLength={3}
-                            />
+                          <View style={styles.listCardActions}>
+                            <View style={styles.priceInputContainer}>
+                              <TextInput
+                                style={[styles.priceInput, {textAlign: 'center', width: 50}]}
+                                value={currentQuantity}
+                                placeholder={associatedQty > 0 ? associatedQty.toString() : '0'}
+                                onChangeText={(text) => {
+                                  let numText = text.replace(/[^0-9]/g, '');
+
+                                  if (numText === '') {
+                                    setAssociatedProductQuantities(prev => ({
+                                      ...prev,
+                                      [quantityKey]: '0'
+                                    }));
+                                    return;
+                                  }
+
+                                  if (numText.length > 1 && numText.startsWith('0')) {
+                                    numText = numText.substring(1);
+                                  }
+
+                                  const numValue = parseInt(numText);
+
+                                  if (!isNaN(numValue) && numValue <= availableQty) {
+                                    setAssociatedProductQuantities(prev => ({ 
+                                      ...prev,
+                                      [quantityKey]: numValue.toString() 
+                                    }));
+                                  }
+                                }}
+                                keyboardType="numeric"
+                                maxLength={3}
+                              />
+                            </View>
                             <TouchableOpacity
                               style={[
-                                styles.addProductButton,
-                                (!currentQuantity || parseInt(currentQuantity) <= 0) && styles.addProductButtonDisabled
+                                styles.addButton,
+                                ( (parseInt(currentQuantity) || 0) <= 0 || (parseInt(currentQuantity) || 0) > availableQty ) 
+                                  && styles.addButtonDisabled
                               ]}
                               onPress={() => {
                                 const qty = parseInt(currentQuantity) || 0
@@ -712,16 +780,18 @@ export default function CustomerDeliveryScreen() {
                                   handleAddAssociatedProduct(inventoryItem, qty)
                                 }
                               }}
-                              disabled={!currentQuantity || parseInt(currentQuantity) <= 0 || parseInt(currentQuantity) > availableQty}
+                              disabled={ (parseInt(currentQuantity) || 0) <= 0 || (parseInt(currentQuantity) || 0) > availableQty }
                             >
-                              <Text style={styles.addProductButtonText}>Add</Text>
+                              <Text style={styles.addButtonText}>Add</Text>
                             </TouchableOpacity>
                           </View>
                         )}
                         
                         {isAlreadyAdded && (
-                          <View style={styles.associatedProductAddedBadge}>
-                            <Text style={styles.associatedProductAddedText}>✓</Text>
+                          <View style={styles.listCardActions}>
+                            <View style={styles.addedBadge}>
+                              <Text style={styles.addedBadgeText}>✓</Text>
+                            </View>
                           </View>
                         )}
                       </View>
@@ -731,62 +801,78 @@ export default function CustomerDeliveryScreen() {
               </View>
             )}
 
-            {/* Items with Individual Editable Totals - MOBILE OPTIMIZED */}
             {customer.deliveredItems.length > 0 && (
               <View style={styles.subsection}>
                 <Text style={styles.sectionTitle}>Items ({customer.deliveredItems.length})</Text>
-                <View style={styles.itemsContainer}>
+                <View style={styles.listContainer}>
                   {customer.deliveredItems.map((item, idx) => (
-                    <View key={idx} style={styles.itemCard}>
-                      {/* Product Name - Full Width */}
-                      <Text style={styles.itemName}>{item.name}</Text>
+                    <View key={idx} style={[styles.listCard, styles.itemCard]}>
                       
-                      {/* Quantity and Price in Responsive Row */}
-                      <View style={styles.itemDetailsRow}>
-                        {/* Quantity Section - Takes 60% of width */}
-                        <View style={styles.quantitySection}>
-                          <Text style={styles.detailLabel}>Quantity:</Text>
-                          <Text style={styles.quantityValue}>{item.qty} packets</Text>
+                      <View style={styles.listCardInfo}>
+                        <Text style={styles.listCardName}>{item.name}</Text>
+                      </View>
+                      
+                      <View style={styles.listCardActions}>
+                        <View style={styles.priceInputContainer}>
+                          <TextInput
+                            style={[
+                              styles.priceInput,
+                              {textAlign: 'center', width: 50},
+                              customer.deliveryConfirmed && styles.textInputDisabled
+                            ]}
+                            value={item.qty.toString()}
+                            onChangeText={(newQty) => handleItemQuantityChange(idx, newQty)}
+                            keyboardType="numeric"
+                            editable={!customer.deliveryConfirmed}
+                            maxLength={3}
+                          />
                         </View>
-                        
-                        {/* Price Section - Takes 40% of width */}
-                        <View style={styles.priceSection}>
-                          <Text style={styles.detailLabel}>Total:</Text>
-                          <View style={styles.priceInputContainer}>
-                            <Text style={styles.rupeeSymbol}>₹</Text>
-                            <TextInput
-                              style={[
-                                styles.responsivePriceInput,
-                                customer.deliveryConfirmed && styles.priceInputDisabled
-                              ]}
-                              value={item.price.toString()}
-                              placeholder={`${item.originalPrice * item.qty}`}
-                              onChangeText={(newTotal) => handleItemTotalChange(idx, newTotal)}
-                              keyboardType="numeric"
-                              editable={!customer.deliveryConfirmed}
-                            />
-                          </View>
+                          
+                        <View style={styles.priceInputContainer}>
+                          <Text style={styles.rupeeSymbol}>₹</Text>
+                          <TextInput
+                            style={[
+                              styles.priceInput,
+                              customer.deliveryConfirmed && styles.textInputDisabled
+                            ]}
+                            value={item.price.toString()}
+                            placeholder={`${item.originalPrice * item.qty}`}
+                            onChangeText={(newTotal) => handleItemTotalChange(idx, newTotal)}
+                            keyboardType="numeric"
+                            editable={!customer.deliveryConfirmed}
+                          />
                         </View>
+
+                        {!customer.deliveryConfirmed && (
+                          <TouchableOpacity
+                            onPress={() => handleRemoveItem(idx)}
+                            style={styles.removeButton}
+                          >
+                            <Text style={styles.removeButtonText}>✕</Text>
+                          </TouchableOpacity>
+                        )}
                       </View>
                     </View>
                   ))}
-                  
-                  {/* Grand Total */}
-                  <View style={styles.grandTotalContainer}>
-                    <Text style={styles.grandTotalLabel}>Grand Total:</Text>
-                    <Text style={styles.grandTotalAmount}>₹{totalPayment}</Text>
-                  </View>
                 </View>
+                <Text style={styles.grandTotalText}>
+                  Grand Total: ₹{totalPayment}
+                </Text>
               </View>
             )}
 
-            {/* Add Products Button - Always visible when delivery not confirmed */}
             {!customer.deliveryConfirmed && (
               <TouchableOpacity
-                style={styles.addProductsButton}
+                style={[
+                  styles.addProductsButton,
+                  customer.deliveredItems.length > 0 && styles.addProductsButtonSecondary
+                ]}
                 onPress={() => setProductDeliveryModal(true)}
               >
-                <Text style={styles.addProductsButtonText}>
+                <Text style={[
+                  styles.addProductsButtonText,
+                  customer.deliveredItems.length > 0 && styles.addProductsButtonSecondaryText
+                ]}>
                   {customer.associatedProductIds && customer.associatedProductIds.length > 0 
                     ? '📦 Add Other Products' 
                     : '📦 Add Products'}
@@ -797,7 +883,6 @@ export default function CustomerDeliveryScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* Product Delivery Modal - Only shows unassociated products */}
       <ProductDeliveryModal
         visible={productDeliveryModal}
         customer={customer}
@@ -808,7 +893,6 @@ export default function CustomerDeliveryScreen() {
         onClose={() => setProductDeliveryModal(false)}
       />
 
-      {/* Single Confirm Button */}
       <View style={[styles.fixedButtonContainer, { bottom: insets.bottom + 20 }]}>
         <TouchableOpacity 
           style={[
@@ -832,524 +916,421 @@ export default function CustomerDeliveryScreen() {
   )
 }
 
-// Styles remain exactly the same as before...
+const theme = {
+  colors: {
+    primary: '#2563EB',
+    primaryLight: '#EFF6FF',
+    primaryLighter: '#F0F9FF',
+    primaryDark: '#1E40AF',
+    primaryBorder: '#DBEAFE',
+    
+    success: '#10B981',
+    successLight: '#ECFDF5',
+    successDark: '#059669',
+    
+    warning: '#F59E0B',
+    
+    error: '#EF4444',
+    errorLight: '#FEF2F2',
+    errorBorder: '#FCA5A5',
+    errorDark: '#DC2626',
+    
+    background: '#F8F9FA',
+    surface: '#FFFFFF',
+    
+    textPrimary: '#1E293B',
+    textSecondary: '#64748B',
+    textOnPrimary: '#FFFFFF',
+    
+    border: '#E2E8F0',
+    borderLight: '#EEE',
+    
+    inputBackground: '#FFFFFF',
+    inputBorder: '#3B82F6',
+    inputDisabled: '#9CA3AF',
+    inputDisabledBg: '#F3F4F6',
+
+    tabInactive: '#F1F5F9',
+    tabInactiveText: '#333',
+
+    disabled: '#D1D5DB',
+  },
+  font: {
+    size: {
+      xl: 22,
+      lg: 18,
+      md: 16,
+      sm: 14,
+      xs: 12,
+    },
+    weight: {
+      bold: '700',
+      semibold: '600',
+      medium: '500',
+      regular: '400',
+    }
+  },
+  spacing: {
+    xs: 4,
+    sm: 8,
+    md: 16,
+    lg: 20,
+    xl: 24,
+  },
+  borderRadius: {
+    sm: 6,
+    md: 8,
+    lg: 12,
+  },
+};
+
 const styles = StyleSheet.create({
-  // ... all existing styles remain the same
-  container: { flex: 1, backgroundColor: "#F8F9FA" },
-  
+  container: { 
+    flex: 1, 
+    backgroundColor: theme.colors.background 
+  },
+  keyboardAvoidingView: { 
+    flex: 1 
+  },
+  scrollView: { 
+    flex: 1 
+  },
+  scrollViewContent: { 
+    paddingBottom: 100 
+  },
   loadingContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    padding: 20,
+    padding: theme.spacing.lg,
   },
-  
   loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: "#64748B",
+    marginTop: theme.spacing.md,
+    fontSize: theme.font.size.md,
+    color: theme.colors.textSecondary,
     textAlign: "center",
   },
-  
   errorContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    padding: 20,
+    padding: theme.spacing.lg,
   },
-  
   errorText: {
-    color: "#EF4444",
-    fontSize: 18,
+    color: theme.colors.error,
+    fontSize: theme.font.size.lg,
     textAlign: "center",
-    marginBottom: 20,
-    fontWeight: "600",
+    marginBottom: theme.spacing.lg,
+    fontWeight: theme.font.weight.semibold,
   },
-  
   retryButton: {
-    backgroundColor: "#2563EB",
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
+    backgroundColor: theme.colors.primary,
+    paddingHorizontal: theme.spacing.xl,
+    paddingVertical: theme.borderRadius.lg,
+    borderRadius: theme.borderRadius.md,
   },
-  
   retryButtonText: {
-    color: "white",
-    fontWeight: "600",
-    fontSize: 16,
+    color: theme.colors.textOnPrimary,
+    fontWeight: theme.font.weight.semibold,
+    fontSize: theme.font.size.md,
   },
-  
   configInstructions: {
-    color: "#64748B",
-    fontSize: 14,
+    color: theme.colors.textSecondary,
+    fontSize: theme.font.size.sm,
     textAlign: "center",
-    backgroundColor: "#F8FAFC",
-    padding: 16,
-    borderRadius: 8,
+    backgroundColor: theme.colors.surface,
+    padding: theme.spacing.md,
+    borderRadius: theme.borderRadius.md,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: theme.colors.border,
     fontFamily: "monospace",
     lineHeight: 20,
   },
-
-  itemsContainer: {
-    backgroundColor: "#F8FAFC",
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: "#E2E8F0",
-  },
-
-  itemCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 10,
-    padding: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-
-  itemName: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#1F2937",
-    marginBottom: 12,
-    lineHeight: 24,
-    // ✅ FIXED: No width constraints that could cause wrapping
-    flexShrink: 1,
-    flexGrow: 1,
-  },
-
-  itemDetailsRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start", // Changed to flex-start to prevent height issues
-    // ✅ RESPONSIVE: Use percentage-based widths
-  },
-
-  quantitySection: {
-    // ✅ RESPONSIVE: Takes 60% of available width
-    flex: 3,
-    marginRight: 12, // Space between sections
-  },
-
-  priceSection: {
-    // ✅ RESPONSIVE: Takes 40% of available width
-    flex: 2,
-    alignItems: "flex-end",
-  },
-
-  detailLabel: {
-    fontSize: 14,
-    color: "#6B7280",
-    fontWeight: "500",
-    marginBottom: 4,
-  },
-
-  quantityValue: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#374151",
-    // ✅ FIXED: Ensure text doesn't wrap
-    flexShrink: 0,
-  },
-
-  priceInputContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#F3F4F6",
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: "#D1FAE5",
-    paddingHorizontal: 8, // ✅ REDUCED: Less padding for smaller screens
-    paddingVertical: 8,
-    // ✅ RESPONSIVE: Use flexible width instead of fixed minWidth
-    width: "100%", // Take full width of parent (40% of row)
-    maxWidth: 120, // ✅ MAXIMUM width to prevent it from getting too large
-  },
-
-  rupeeSymbol: {
-    fontSize: 16, // ✅ SMALLER: Reduced size for mobile
-    fontWeight: "700",
-    color: "#059669",
-    marginRight: 4,
-    // ✅ FIXED: Prevent shrinking
-    flexShrink: 0,
-  },
-
-  responsivePriceInput: {
-    fontSize: 16, // ✅ SMALLER: Better for mobile
-    fontWeight: "700",
-    color: "#059669",
-    textAlign: "right",
-    // ✅ RESPONSIVE: Take remaining space
-    flex: 1,
-    padding: 0,
-    margin: 0,
-    // ✅ FIXED: Ensure it doesn't overflow
-    minWidth: 0, // Allow it to shrink if needed
-  },
-
-  priceInputDisabled: {
-    color: "#9CA3AF",
-    backgroundColor: "transparent",
-  },
-
-  grandTotalContainer: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: 16,
-    paddingTop: 16,
-    borderTopWidth: 2,
-    borderTopColor: "#2563EB",
-    backgroundColor: "#EFF6FF",
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-
-  grandTotalLabel: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#1E40AF",
-    // ✅ RESPONSIVE: Allow text to take needed space
-    flex: 1,
-  },
-
-  grandTotalAmount: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#2563EB",
-    // ✅ FIXED: Prevent shrinking
-    flexShrink: 0,
-  },
-
+  
   progressHeader: {
-    backgroundColor: "#EFF6FF",
+    backgroundColor: theme.colors.primaryLight,
     paddingVertical: 12,
-    paddingHorizontal: 16,
+    paddingHorizontal: theme.spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: "#DBEAFE",
+    borderBottomColor: theme.colors.primaryBorder,
   },
-
   progressText: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#1E40AF",
+    fontSize: theme.font.size.sm,
+    fontWeight: theme.font.weight.bold,
+    color: theme.colors.primaryDark,
     textAlign: "center",
-    marginBottom: 8,
+    marginBottom: theme.spacing.sm,
   },
-
   progressBar: {
     height: 4,
-    backgroundColor: "#DBEAFE",
+    backgroundColor: theme.colors.primaryBorder,
     borderRadius: 2,
     overflow: "hidden",
   },
-
   progressFill: {
     height: "100%",
-    backgroundColor: "#2563EB",
+    backgroundColor: theme.colors.primary,
     borderRadius: 2,
   },
 
   tabsContainer: {
-    backgroundColor: "#fff",
+    backgroundColor: theme.colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: "#EEE",
-    paddingVertical: 12,
+    borderBottomColor: theme.colors.borderLight,
+    paddingVertical: 10,
   },
-  
   tabs: {
-    paddingLeft: 16,
+    paddingLeft: theme.spacing.md,
   },
-  
   tab: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 8,
-    marginRight: 8,
-    backgroundColor: "#F1F5F9",
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: 10,
+    borderRadius: theme.borderRadius.md,
+    marginRight: theme.spacing.sm,
+    backgroundColor: theme.colors.tabInactive,
     alignItems: "center",
   },
-  
   activeTab: { 
-    backgroundColor: "#2563EB" 
+    backgroundColor: theme.colors.primary 
   },
-
   confirmedTab: {
-    backgroundColor: "#ECFDF5",
-    borderColor: "#10B981",
+    backgroundColor: theme.colors.successLight,
+    borderColor: theme.colors.success,
     borderWidth: 1,
   },
-  
   tabText: { 
-    color: "#333", 
-    fontWeight: "500",
-    fontSize: 14,
+    color: theme.colors.tabInactiveText, 
+    fontWeight: theme.font.weight.medium,
+    fontSize: theme.font.size.sm,
     textAlign: "center",
   },
-  
   activeTabText: { 
-    color: "#fff", 
-    fontWeight: "700" 
+    color: theme.colors.textOnPrimary, 
+    fontWeight: theme.font.weight.bold 
   },
-
   confirmedTabText: {
-    color: "#059669",
-    fontWeight: "700",
+    color: theme.colors.successDark,
+    fontWeight: theme.font.weight.bold,
   },
 
   card: {
-    backgroundColor: "#fff",
-    borderRadius: 14,
-    margin: 16,
-    padding: 22,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.borderRadius.lg,
+    margin: theme.spacing.md,
+    padding: 18,
     elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
   },
-
   customerCard: {
-    marginBottom: 20,
+    marginBottom: theme.spacing.lg,
   },
-
   customerHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 8,
+    marginBottom: theme.spacing.xs,
   },
-  
-  name: { 
-    fontSize: 24, 
-    fontWeight: "bold", 
-    color: "#1E293B",
+  customerName: { 
+    fontSize: theme.font.size.xl, 
+    fontWeight: theme.font.weight.bold, 
+    color: theme.colors.textPrimary,
     flex: 1,
   },
-
   confirmedBadge: {
-    backgroundColor: "#ECFDF5",
-    borderColor: "#10B981",
+    backgroundColor: theme.colors.successLight,
+    borderColor: theme.colors.success,
     borderWidth: 1,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.xs,
+    borderRadius: theme.borderRadius.lg,
   },
-
   confirmedBadgeText: {
-    color: "#059669",
-    fontSize: 16,
-    fontWeight: "700",
+    color: theme.colors.successDark,
+    fontSize: theme.font.size.md,
+    fontWeight: theme.font.weight.bold,
   },
-  
-  address: { 
-    color: "#64748B", 
-    fontSize: 16, 
-    lineHeight: 22
+  customerAddress: { 
+    color: theme.colors.textSecondary, 
+    fontSize: theme.font.size.sm, 
+    lineHeight: 20
   },
   
   subsection: { 
-    marginTop: 24 
+    marginTop: theme.spacing.xl 
   },
-  
   sectionTitle: { 
-    fontSize: 18, 
-    fontWeight: "700", 
-    marginBottom: 12, 
-    color: "#1E293B" 
+    fontSize: theme.font.size.md, 
+    fontWeight: theme.font.weight.bold, 
+    marginBottom: theme.spacing.sm, 
+    color: theme.colors.textPrimary 
   },
 
-  itemPriceInput: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#059669",
-    textAlign: "center",
-    minWidth: 60,
-    padding: 0,
-    flex: 1, // ✅ ADD: Take remaining space in price container
+  listContainer: {
+    gap: theme.spacing.sm,
+    marginTop: theme.spacing.sm,
+  },
+  listCard: {
+    borderRadius: theme.borderRadius.md,
+    padding: 10,
+    borderWidth: 1.5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  catalogCard: {
+    backgroundColor: theme.colors.primaryLighter,
+    borderColor: theme.colors.primary,
+  },
+  catalogCardAdded: {
+    backgroundColor: theme.colors.successLight,
+    borderColor: theme.colors.success,
+  },
+  catalogCardDisabled: {
+    backgroundColor: theme.colors.inputDisabledBg,
+    borderColor: theme.colors.border,
+    opacity: 0.6,
+  },
+  itemCard: {
+    backgroundColor: theme.colors.successLight,
+    borderColor: theme.colors.success,
+  },
+  listCardInfo: {
+    flex: 1,
+    marginRight: theme.spacing.sm,
+  },
+  listCardName: {
+    fontSize: theme.font.size.sm,
+    fontWeight: theme.font.weight.bold,
+    color: theme.colors.textPrimary,
+    marginBottom: 2,
+  },
+  listCardDetails: {
+    fontSize: theme.font.size.xs,
+    color: theme.colors.textSecondary,
+    fontWeight: theme.font.weight.medium,
+    marginBottom: 2,
+  },
+  listCardPrice: {
+    fontSize: theme.font.size.xs,
+    color: theme.colors.textSecondary,
+    fontWeight: theme.font.weight.semibold,
+  },
+  listCardActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
   },
   
-  itemPriceInputDisabled: {
-    color: "#9CA3AF",
-    backgroundColor: "#F9FAFB",
+  textInputDisabled: {
+    color: theme.colors.inputDisabled,
+    backgroundColor: theme.colors.inputDisabledBg,
+    borderColor: theme.colors.border,
+  },
+  
+  priceInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: theme.colors.inputBorder,
+    borderRadius: theme.borderRadius.sm,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: 8,
+    backgroundColor: theme.colors.inputBackground,
+  },
+  rupeeSymbol: {
+    fontSize: theme.font.size.sm,
+    fontWeight: theme.font.weight.semibold,
+    color: theme.colors.textPrimary,
+    marginRight: theme.spacing.xs,
+  },
+  priceInput: {
+    padding: 0,
+    width: 50,
+    fontSize: theme.font.size.sm,
+    fontWeight: theme.font.weight.semibold,
+    color: theme.colors.textPrimary,
+    backgroundColor: theme.colors.inputBackground,
+  },
+
+  addButton: {
+    backgroundColor: theme.colors.success,
+    borderRadius: theme.borderRadius.sm,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    minWidth: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addButtonDisabled: {
+    backgroundColor: theme.colors.disabled,
+  },
+  addButtonText: {
+    color: theme.colors.textOnPrimary,
+    fontWeight: theme.font.weight.bold,
+    fontSize: theme.font.size.xs,
+  },
+  addedBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  addedBadgeText: {
+    color: theme.colors.successDark,
+    fontSize: theme.font.size.md,
+    fontWeight: theme.font.weight.bold,
+  },
+
+  removeButton: {
+    backgroundColor: theme.colors.errorLight,
+    borderColor: theme.colors.errorBorder,
+    borderWidth: 1.5,
+    borderRadius: theme.borderRadius.sm,
+    width: 34,
+    height: 34,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 0,
+  },
+  removeButtonText: {
+    color: theme.colors.errorDark,
+    fontSize: 16,
+    fontWeight: 'bold',
+    lineHeight: 16,
+  },
+  
+  grandTotalText: {
+    fontSize: theme.font.size.lg,
+    fontWeight: theme.font.weight.bold,
+    color: theme.colors.textPrimary,
+    textAlign: 'right',
+    marginTop: theme.spacing.md,
+    paddingTop: theme.spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
   },
 
   addProductsButton: {
-    backgroundColor: "#2563EB",
-    borderRadius: 10,
+    backgroundColor: theme.colors.primary,
+    borderRadius: theme.borderRadius.lg,
     padding: 18,
     alignItems: "center",
-    marginTop: 20,
+    marginTop: theme.spacing.lg,
   },
-
-  addProductsButtonDisabled: {
-    backgroundColor: "#10B981",
-  },
-  
-  addProductsButtonText: {
-    color: "white",
-    fontWeight: "700",
-    fontSize: 18,
-  },
-
-  totalPaymentContainer: {
-    backgroundColor: "#EFF6FF",
-    borderRadius: 12,
-    padding: 20,
+  addProductsButtonSecondary: {
+    backgroundColor: 'transparent',
+    borderColor: theme.colors.primary,
     borderWidth: 2,
-    borderColor: "#2563EB",
-    alignItems: "center",
+    padding: 16,
   },
-  
-  totalPaymentAmount: {
-    fontSize: 28,
-    fontWeight: "bold",
-    color: "#2563EB",
-    marginBottom: 4,
+  addProductsButtonText: {
+    color: theme.colors.textOnPrimary,
+    fontWeight: theme.font.weight.bold,
+    fontSize: theme.font.size.lg,
   },
-  
-  totalPaymentLabel: {
-    fontSize: 16,
-    color: "#64748B",
-    fontWeight: "500",
-  },
-
-  // Associated Products Styles
-  associatedProductsContainer: {
-    gap: 8,
-    marginTop: 8,
-  },
-
-  associatedProductCard: {
-    backgroundColor: "#F0F9FF",
-    borderRadius: 8,
-    padding: 10,
-    borderWidth: 1.5,
-    borderColor: "#3B82F6",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    shadowColor: "#3B82F6",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-
-  associatedProductCardAdded: {
-    backgroundColor: "#ECFDF5",
-    borderColor: "#10B981",
-  },
-
-  associatedProductCardDisabled: {
-    backgroundColor: "#F3F4F6",
-    borderColor: "#D1D5DB",
-    opacity: 0.6,
-  },
-
-  associatedProductInfo: {
-    flex: 1,
-    marginRight: 8,
-    minWidth: 0, // Allow flex shrinking
-  },
-
-  associatedProductName: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#1E293B",
-    marginBottom: 2,
-  },
-
-  associatedProductDetails: {
-    fontSize: 11,
-    color: "#64748B",
-    fontWeight: "500",
-    marginBottom: 2,
-  },
-
-  associatedProductPrice: {
-    fontSize: 11,
-    color: "#059669",
-    fontWeight: "600",
-  },
-
-  addProductIcon: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: "#3B82F6",
-    marginLeft: 12,
-    width: 32,
-    height: 32,
-    textAlign: "center",
-    lineHeight: 32,
-    backgroundColor: "#DBEAFE",
-    borderRadius: 16,
-  },
-
-  associatedProductQuantitySection: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-
-  associatedProductQuantityInput: {
-    borderWidth: 1.5,
-    borderColor: "#3B82F6",
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    fontSize: 13,
-    fontWeight: "600",
-    textAlign: "center",
-    backgroundColor: "#fff",
-    width: 50,
-  },
-
-  packetsLabelSmall: {
-    fontSize: 11,
-    color: "#64748B",
-    fontWeight: "500",
-  },
-
-  addProductButton: {
-    backgroundColor: "#10B981",
-    borderRadius: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    minWidth: 50,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  addProductButtonDisabled: {
-    backgroundColor: "#D1D5DB",
-  },
-
-  addProductButtonText: {
-    color: "#fff",
-    fontWeight: "700",
-    fontSize: 12,
-  },
-
-  associatedProductAddedBadge: {
-    backgroundColor: "#ECFDF5",
-    borderColor: "#10B981",
-    borderWidth: 1,
-    borderRadius: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-
-  associatedProductAddedText: {
-    color: "#059669",
-    fontSize: 12,
-    fontWeight: "700",
-    textAlign: "center",
+  addProductsButtonSecondaryText: {
+    color: theme.colors.primary,
   },
 
   fixedButtonContainer: {
@@ -1358,64 +1339,23 @@ const styles = StyleSheet.create({
     right: 18,
     zIndex: 100,
   },
-  
   confirmButton: {
-    backgroundColor: "#2563EB",
-    borderRadius: 12,
+    backgroundColor: theme.colors.primary,
+    borderRadius: theme.borderRadius.lg,
     padding: 18,
     alignItems: "center",
     elevation: 8,
-    shadowColor: "#2563EB",
+    shadowColor: theme.colors.primary,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
   },
-
   confirmButtonProcessing: {
-    backgroundColor: "#F59E0B",
+    backgroundColor: theme.colors.warning,
   },
-  
   confirmButtonText: {
-    color: "white",
-    fontWeight: "700",
-    fontSize: 18,
+    color: theme.colors.textOnPrimary,
+    fontWeight: theme.font.weight.bold,
+    fontSize: theme.font.size.lg,
   },
-
-
-  quantityLabel: {
-    fontSize: 14,
-    color: "#6B7280",
-    fontWeight: "500",
-    marginBottom: 4,
-  },
-
-  priceLabel: {
-    fontSize: 14,
-    color: "#6B7280",
-    fontWeight: "500",
-    marginBottom: 4,
-  },
-
-  priceInputWrapper: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#F3F4F6",
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: "#D1FAE5",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    minWidth: 120, // Fixed width for price input
-  },
-
-  priceInput: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#059669",
-    textAlign: "right",
-    flex: 1,
-    padding: 0,
-    margin: 0,
-  },
-  
 })

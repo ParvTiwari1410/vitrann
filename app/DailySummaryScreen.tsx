@@ -228,12 +228,12 @@ export default function DailySummaryScreen() {
 
       // Navigate to home or login screen
       setTimeout(() => {
-        router.push('/')
+        router.replace('/')
       }, 2000)
 
     } catch (error) {
       console.error('Error submitting summary:', error)
-      
+
       Toast.show({
         type: 'error',
         text1: 'Submission Failed',
@@ -315,15 +315,15 @@ export default function DailySummaryScreen() {
           <View style={styles.cashHeader}>
             <Text style={styles.paymentsLabel}>💰 Cash Collection Summary</Text>
           </View>
-          
+
           {cashRecord ? (
             <View style={styles.cashDetails}>
               <View style={styles.cashRow}>
                 <Text style={styles.cashRowLabel}>Submitted Amount:</Text>
                 <Text style={styles.cashRowValue}>₹{cashRecord.amount}</Text>
               </View>
-              
-             
+
+
               <View style={styles.cashDateRow}>
                 <Text style={styles.cashDateText}>
                   Recorded on: {new Date(cashRecord.date).toLocaleDateString('en-IN', {
@@ -344,14 +344,14 @@ export default function DailySummaryScreen() {
           )}
         </View>
 
-       
+
 
         {/* Submit Button */}
-        <TouchableOpacity 
+        <TouchableOpacity
           style={[
-            styles.submitBtn, 
+            styles.submitBtn,
             submitting && styles.submitBtnDisabled
-          ]} 
+          ]}
           onPress={submitDailySummary}
           disabled={submitting}
         >
@@ -374,41 +374,41 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F5F6F9',
   },
-  
+
   loadingContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
   },
-  
+
   loadingText: {
     marginTop: 16,
     fontSize: 16,
     color: "#64748B",
     textAlign: "center",
   },
-  
+
   errorContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
     padding: 20,
   },
-  
+
   errorText: {
     color: "#EF4444",
     fontSize: 16,
     textAlign: "center",
     marginBottom: 20,
   },
-  
+
   retryButton: {
     backgroundColor: "#297BF6",
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 8,
   },
-  
+
   retryButtonText: {
     color: "#fff",
     fontWeight: "600",

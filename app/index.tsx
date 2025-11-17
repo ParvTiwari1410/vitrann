@@ -81,19 +81,20 @@ export default function Index() {
     setIsLoading(true);
 
     try {
+      console.log("Connecting to backend:", API_BASE_URL);
       const response = await fetch(`${API_BASE_URL}/auth/worker-login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
         },
-        
+
         body: JSON.stringify({
           phoneNumber: phoneNumber.trim(),
           password: password,
         }),
       });
-      console.log("Connecting to backend:", API_BASE_URL)
+
       const data: WorkerLoginResponse = await response.json();
 
       if (data.success === true && data.token && data.worker) {
@@ -111,7 +112,10 @@ export default function Index() {
 
         // Navigate to MorningStockScreen after a short delay
         setTimeout(() => {
-          router.push(`/MorningStockScreen?workerId=${data.worker.workerId}`);
+          router.replace({
+            pathname: '/MorningStockScreen',
+            params: { workerId: data.worker.workerId }
+          });
         }, 1200);
 
       } else {
@@ -123,6 +127,7 @@ export default function Index() {
       }
 
     } catch (error) {
+      console.error(error);
       Toast.show({
         type: 'error',
         text1: 'Connection Error',
@@ -134,10 +139,6 @@ export default function Index() {
   }
 
   return (
-    
-    console.log("App started"),
-          console.log("Connecting to backend:", API_BASE_URL)
-,
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor="#F8F9FA" />
       <LinearGradient
@@ -195,7 +196,7 @@ export default function Index() {
                   autoCapitalize="none"
                   autoCorrect={false}
                 />
-                <TouchableOpacity 
+                <TouchableOpacity
                   onPress={() => setShowPassword(!showPassword)}
                   disabled={isLoading}
                 >

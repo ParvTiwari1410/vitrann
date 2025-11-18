@@ -45,7 +45,6 @@ const MorningStockScreen = () => {
 
   const [products, setProducts] = useState<Product[]>([])
   const [quantities, setQuantities] = useState<{[key: number]: string}>({})
-  const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -77,7 +76,6 @@ const MorningStockScreen = () => {
         const validProducts = result.data.filter((p: Product) => p && p.inventory && p.inventory.inventoryId)
         setProducts(validProducts)
 
-        // Only reset quantities on initial load, not refresh (to preserve work if they pull by accident)
         if (!isRefresh) {
           const initial: {[key: number]: string} = {}
           validProducts.forEach((p: Product) => {
@@ -100,20 +98,17 @@ const MorningStockScreen = () => {
     fetchData(false)
   }, [fetchData])
 
-  useEffect(() => {
-    const sum = Object.values(quantities)
-      .map(q => parseInt(q) || 0)
-      .reduce((acc, val) => acc + val, 0)
-    setTotal(sum)
-  }, [quantities])
-
   const handleInputChange = (inventoryId: number, text: string) => {
     let cleaned = text.replace(/[^0-9]/g, '').slice(0, 3)
     setQuantities(prev => ({ ...prev, [inventoryId]: cleaned }))
   }
 
   const handleSubmit = async () => {
-    if (total === 0) {
+    const currentTotal = Object.values(quantities)
+      .map(q => parseInt(q) || 0)
+      .reduce((acc, val) => acc + val, 0)
+
+    if (currentTotal === 0) {
       Toast.show({ type: 'error', text1: 'Error', text2: 'Please enter quantity.' })
       return
     }
@@ -164,7 +159,7 @@ const MorningStockScreen = () => {
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={{ flex: 1 }}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 80 : 0} // ✅ Prevent footer from being hidden
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 80 : 0}
       >
 
         {/* Header */}
@@ -179,7 +174,6 @@ const MorningStockScreen = () => {
         <ScrollView
           style={styles.scroll}
           contentContainerStyle={styles.scrollContent}
-          // ✅ Added Pull-to-Refresh
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={() => fetchData(true)} tintColor="#3880FF" />
           }
@@ -206,7 +200,6 @@ const MorningStockScreen = () => {
                 </View>
 
                 <View style={styles.inputWrapper}>
-                  {/* ✅ Updated Input with active state */}
                   <TextInput
                     style={[
                       styles.input,
@@ -230,14 +223,10 @@ const MorningStockScreen = () => {
 
         {/* Footer */}
         <View style={styles.footer}>
-           <View style={styles.totalRow}>
-             <Text style={styles.totalLabel}>Total Packets:</Text>
-             <Text style={styles.totalValue}>{total}</Text>
-           </View>
           <TouchableOpacity
-            style={[styles.button, (submitting || total === 0) && styles.buttonDisabled]}
+            style={[styles.button, submitting && styles.buttonDisabled]}
             onPress={handleSubmit}
-            disabled={submitting || total === 0}
+            disabled={submitting}
           >
             {submitting ? <ActivityIndicator color="#FFF" /> : <Text style={styles.buttonText}>Start Delivery</Text>}
           </TouchableOpacity>
@@ -376,21 +365,6 @@ const styles = StyleSheet.create({
     padding: 16,
     borderTopWidth: 1,
     borderTopColor: '#E2E8F0',
-  },
-  totalRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  totalLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#444',
-  },
-  totalValue: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#3880FF',
   },
   button: {
     backgroundColor: '#3880FF',

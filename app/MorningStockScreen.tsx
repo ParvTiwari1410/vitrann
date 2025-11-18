@@ -1,13 +1,16 @@
 "use client"
 
+import { Ionicons } from "@expo/vector-icons"
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import Constants from 'expo-constants'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import {
   ActivityIndicator,
+  Image,
   KeyboardAvoidingView,
   Platform,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -18,7 +21,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context'
 import Toast from 'react-native-toast-message'
 
-// Updated interface to match your API response
+
 interface Product {
   productId: number
   productName: string
@@ -40,383 +43,350 @@ const MorningStockScreen = () => {
 
   const API_BASE_URL = Constants.expoConfig?.extra?.EXPO_PUBLIC_API_BASE_URL ?? 'https://theinfranova.com/api';
 
-
   const [products, setProducts] = useState<Product[]>([])
-  const [quantities, setQuantities] = useState<{[key: number]: string}>({}) // Key is inventoryId now
-  const [total, setTotal] = useState(0)
+  const [quantities, setQuantities] = useState<{[key: number]: string}>({})
   const [loading, setLoading] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [workerName, setWorkerName] = useState('')
+  const [focusedInput, setFocusedInput] = useState<number | null>(null)
 
-  // Fetch worker name and products on mount
-  useEffect(() => {
+  // Get current date formatted
+  const currentDate = new Date().toLocaleDateString('en-GB', {
+    weekday: 'long', day: 'numeric', month: 'short', year: 'numeric'
+  });
+
+  const fetchData = useCallback(async (isRefresh = false) => {
     console.log('Fetching products for workerId:', workerId)
-    const loadData = async () => {
-      try {
-        const name = await AsyncStorage.getItem('workerName')
-        setWorkerName(name || `Worker ${workerId}`)
-        setLoading(true)
-        const token = await AsyncStorage.getItem('authToken')
-        const response = await fetch(`${API_BASE_URL}/products/products-with-latest-inventory`, {
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token && { 'Authorization': `Bearer ${token}` }),
-          },
-        })
-        const result = await response.json()
-        if (result.success && Array.isArray(result.data)) {
-          // ✅ SAFETY CHECK: Filter out products without inventory
-// ✅ FIXED: Properly typed parameter
-const validProducts = result.data.filter((p: Product) => p && p.inventory && p.inventory.inventoryId)
-          setProducts(validProducts)
-          
-          // Initialize quantities using inventoryId as key
+    if (!isRefresh) setLoading(true)
+    else setRefreshing(true)
+
+    try {
+      const name = await AsyncStorage.getItem('workerName')
+      setWorkerName(name || `Worker ${workerId}`)
+      const token = await AsyncStorage.getItem('authToken')
+      const response = await fetch(`${API_BASE_URL}/products/products-with-latest-inventory`, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token && { 'Authorization': `Bearer ${token}` }),
+        },
+      })
+      const result = await response.json()
+      if (result.success && Array.isArray(result.data)) {
+        const validProducts = result.data.filter((p: Product) => p && p.inventory && p.inventory.inventoryId)
+        setProducts(validProducts)
+
+        if (!isRefresh) {
           const initial: {[key: number]: string} = {}
           validProducts.forEach((p: Product) => {
-            initial[p.inventory.inventoryId] = '' // ✅ Use inventoryId as key
+            initial[p.inventory.inventoryId] = ''
           })
           setQuantities(initial)
-        } else {
-          Toast.show({
-            type: 'error',
-            text1: 'Error',
-            text2: 'Failed to load products',
-          })
         }
-      } catch (error) {
-        Toast.show({
-          type: 'error',
-          text1: 'Error',
-          text2: 'Network error while loading products',
-        })
+      } else {
+        Toast.show({ type: 'error', text1: 'Error', text2: 'Failed to load products' })
       }
+    } catch (error) {
+      Toast.show({ type: 'error', text1: 'Error', text2: 'Network error' })
+    } finally {
       setLoading(false)
+      setRefreshing(false)
     }
-    loadData()
-  }, [])
+  }, [workerId, API_BASE_URL])
 
-  // Live total calculation
   useEffect(() => {
-    const sum = Object.values(quantities)
-      .map(q => parseInt(q) || 0)
-      .reduce((acc, val) => acc + val, 0)
-    setTotal(sum)
-  }, [quantities])
+    fetchData(false)
+  }, [fetchData])
 
-  // Handle input change for each inventory item
   const handleInputChange = (inventoryId: number, text: string) => {
-    // Only allow numbers, max 3 digits
     let cleaned = text.replace(/[^0-9]/g, '').slice(0, 3)
-    setQuantities(prev => ({
-      ...prev,
-      [inventoryId]: cleaned // ✅ Use inventoryId as key
-    }))
+    setQuantities(prev => ({ ...prev, [inventoryId]: cleaned }))
   }
 
-  // Submit quantities to backend
   const handleSubmit = async () => {
-    if (total === 0) {
-      Toast.show({
-        type: 'error',
-        text1: 'Error',
-        text2: 'Please enter quantity for at least one product.',
-      })
+    const currentTotal = Object.values(quantities)
+      .map(q => parseInt(q) || 0)
+      .reduce((acc, val) => acc + val, 0)
+
+    if (currentTotal === 0) {
+      Toast.show({ type: 'error', text1: 'Error', text2: 'Please enter quantity.' })
       return
     }
     setSubmitting(true)
     try {
       const token = await AsyncStorage.getItem('authToken')
-      
-      // Create pickItems using correct inventoryId
       const pickItems = Object.entries(quantities)
         .filter(([_, qty]) => (parseInt(qty) || 0) > 0)
         .map(([inventoryId, qty]) => ({
-          inventoryId: parseInt(inventoryId), // ✅ inventoryId is already correct
+          inventoryId: parseInt(inventoryId),
           totalPickedQuantity: parseInt(qty)
         }))
 
-      console.log('Submitting pick items:', pickItems) // Debug log
-      
       const response = await fetch(`${API_BASE_URL}/daily-activity-wi/pick-quantities`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(token && { 'Authorization': `Bearer ${token}` }),
         },
-        body: JSON.stringify({
-          workerId: parseInt(workerId),
-          pickItems
-        })
+        body: JSON.stringify({ workerId: parseInt(workerId), pickItems })
       })
-      
+
       const result = await response.json()
       if (result.success) {
-        Toast.show({
-          type: 'success',
-          text1: 'Success',
-          text2: result.message || 'Stock submitted successfully!',
-        })
-        // Navigate after a short delay so user sees the toast
+        Toast.show({ type: 'success', text1: 'Success', text2: 'Stock submitted!' })
         setTimeout(() => {
-          router.push({
-            pathname: '/CustomerDeliveryScreen',
-            params: { workerId, workerName }
-          })
+          router.push({ pathname: '/CustomerDeliveryScreen', params: { workerId, workerName } })
         }, 1200)
       } else {
-        Toast.show({
-          type: 'error',
-          text1: 'Error',
-          text2: result.message || 'Submission failed',
-        })
+        Toast.show({ type: 'error', text1: 'Error', text2: result.message || 'Failed' })
       }
     } catch (error) {
-      Toast.show({
-        type: 'error',
-        text1: 'Error',
-        text2: 'Network error during submission',
-      })
+      Toast.show({ type: 'error', text1: 'Error', text2: 'Network error' })
     }
     setSubmitting(false)
   }
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
-        <ActivityIndicator size="large" color="#007AFF" />
-        <Text style={styles.loadingText}>Loading products...</Text>
-      </SafeAreaView>
-    )
-  }
-
-  if (products.length === 0) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.emptyContainer}>
-          <Text style={styles.emptyText}>No products available</Text>
-          <Text style={styles.emptySubtext}>Contact admin to add products to inventory</Text>
-        </View>
+      <SafeAreaView style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#3880FF" />
       </SafeAreaView>
     )
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={{ flex: 1 }}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 80 : 0}
       >
-        <Text style={styles.welcome}>Welcome, {workerName}!</Text>
-        <Text style={styles.title}>Morning Stock</Text>
-        <Text style={styles.subtitle}>Select quantities to pick for delivery</Text>
-        
-        <ScrollView style={styles.scroll} keyboardShouldPersistTaps="handled">
-          {products.map((product) => (
-            <View key={product.inventory.inventoryId} style={styles.card}>
-              <View style={styles.productInfo}>
-                <Text style={styles.productName}>{product.productName}</Text>
-                <Text style={styles.productPrice}>₹{product.currentProductPrice}</Text>
-                <Text style={styles.storeId}>{product.storeId}</Text>
-              </View>
-              <View style={styles.inputContainer}>
-                <TextInput
-                  style={styles.input}
-                  placeholder="0"
-                  keyboardType="numeric"
-                  maxLength={3}
-                  value={quantities[product.inventory.inventoryId] ?? ''} // ✅ Use inventoryId
-                  onChangeText={(text) => handleInputChange(product.inventory.inventoryId, text)} // ✅ Use inventoryId
-                  editable={!submitting}
-                />
-                <Text style={styles.packetsLabel}>Packets</Text>
-              </View>
-            </View>
-          ))}
-        </ScrollView>
-        
-        <View style={styles.totalCard}>
-          <Text style={styles.totalLabel}>Total: {total} Packets</Text>
+
+        {/* Header */}
+        <View style={styles.headerContainer}>
+          <View style={styles.headerTextContainer}>
+            <Text style={styles.workerNameText}>{workerName}</Text>
+            <Text style={styles.headerTitleText}>Morning Stock</Text>
+            <Text style={styles.dateText}>{currentDate}</Text>
+          </View>
         </View>
-        
-        <TouchableOpacity
-          style={[styles.button, submitting && styles.buttonDisabled]}
-          onPress={handleSubmit}
-          disabled={submitting || total === 0}
+
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.scrollContent}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={() => fetchData(true)} tintColor="#3880FF" />
+          }
         >
-          <Text style={styles.buttonText}>
-            {submitting ? 'Submitting...' : `Start Delivery (${total})`}
-          </Text>
-        </TouchableOpacity>
+          {products.length === 0 ? (
+             <View style={styles.emptyContainer}>
+                <Text style={styles.emptyText}>No products available</Text>
+             </View>
+          ) : (
+            products.map((product) => (
+              <View key={product.inventory.inventoryId} style={styles.card}>
+                <View style={styles.imageWrapper}>
+                  {product.imageUrl ? (
+                    <Image source={{ uri: product.imageUrl }} style={styles.productImage} resizeMode="contain" />
+                  ) : (
+                    <View style={[styles.productImage, styles.placeholderImage]}>
+                      <Ionicons name="image-outline" size={24} color="#ccc" />
+                    </View>
+                  )}
+                </View>
+
+                <View style={styles.textWrapper}>
+                  <Text style={styles.productName}>{product.productName}</Text>
+                </View>
+
+                <View style={styles.inputWrapper}>
+                  <TextInput
+                    style={[
+                      styles.input,
+                      (focusedInput === product.inventory.inventoryId || (parseInt(quantities[product.inventory.inventoryId] || '0') > 0)) && styles.inputActive
+                    ]}
+                    placeholder="0"
+                    placeholderTextColor="#999"
+                    keyboardType="numeric"
+                    maxLength={3}
+                    value={quantities[product.inventory.inventoryId] ?? ''}
+                    onFocus={() => setFocusedInput(product.inventory.inventoryId)}
+                    onBlur={() => setFocusedInput(null)}
+                    onChangeText={(text) => handleInputChange(product.inventory.inventoryId, text)}
+                    editable={!submitting}
+                  />
+                </View>
+              </View>
+            ))
+          )}
+        </ScrollView>
+
+        {/* Footer */}
+        <View style={styles.footer}>
+          <TouchableOpacity
+            style={[styles.button, submitting && styles.buttonDisabled]}
+            onPress={handleSubmit}
+            disabled={submitting}
+          >
+            {submitting ? <ActivityIndicator color="#FFF" /> : <Text style={styles.buttonText}>Start Delivery</Text>}
+          </TouchableOpacity>
+        </View>
+
       </KeyboardAvoidingView>
     </SafeAreaView>
   )
 }
 
 const styles = StyleSheet.create({
-  container: { 
-    flex: 1, 
-    padding: 16, 
-    backgroundColor: '#f5f5f5' 
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#F7F7F7'
   },
-  
-  welcome: { 
-    fontSize: 18, 
-    textAlign: 'center', 
-    marginBottom: 10, 
-    color: '#333',
-    fontWeight: '600'
-  },
-  
-  title: { 
-    fontSize: 24, 
-    fontWeight: 'bold', 
-    textAlign: 'center', 
-    marginBottom: 8,
-    color: '#007AFF'
-  },
-  
-  subtitle: {
-    fontSize: 14,
-    textAlign: 'center',
-    marginBottom: 20,
-    color: '#666'
-  },
-  
-  scroll: { 
-    flex: 1 
-  },
-  
-  card: {
-    backgroundColor: 'white',
-    padding: 16,
-    marginBottom: 12,
-    borderRadius: 8,
-    flexDirection: 'row',
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    elevation: 2,
+    backgroundColor: '#F7F7F7'
+  },
+
+  // Header Styles
+  headerContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    backgroundColor: '#FFFFFF',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
+    elevation: 3,
+    zIndex: 10,
   },
-  
-  productInfo: {
-    flex: 1,
-    marginRight: 12,
-  },
-  
-  productName: { 
-    fontSize: 16, 
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 4
-  },
-  
-  productPrice: {
-    fontSize: 14,
-    color: '#007AFF',
-    fontWeight: '500',
-    marginBottom: 2
-  },
-  
-  storeId: {
-    fontSize: 12,
-    color: '#666',
-    fontWeight: '500'
-  },
-  
-  inputContainer: {
+  headerTextContainer: {
     alignItems: 'center',
   },
-  
-  input: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    padding: 8,
-    width: 60,
-    textAlign: 'center',
+  workerNameText: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#3880FF',
     marginBottom: 4,
-    borderRadius: 4,
-    backgroundColor: '#f9f9f9',
-    fontSize: 16,
-    fontWeight: '600'
   },
-  
-  packetsLabel: {
+  headerTitleText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#666',
+    marginBottom: 2,
+  },
+  dateText: {
     fontSize: 12,
-    color: '#666'
+    color: '#999',
   },
-  
-  totalCard: {
-    backgroundColor: 'white',
-    padding: 20,
-    borderRadius: 8,
-    marginVertical: 16,
-    borderWidth: 2,
-    borderColor: '#007AFF',
-    elevation: 3,
-    shadowColor: '#007AFF',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-  },
-  
-  totalLabel: { 
-    fontSize: 20, 
-    fontWeight: 'bold', 
-    textAlign: 'center', 
-    color: '#007AFF' 
-  },
-  
-  button: {
-    backgroundColor: '#007AFF',
-    padding: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-    elevation: 3,
-    shadowColor: '#007AFF',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-  },
-  
-  buttonText: { 
-    color: 'white', 
-    fontSize: 18, 
-    fontWeight: 'bold' 
-  },
-  
-  buttonDisabled: { 
-    backgroundColor: '#999' 
-  },
-  
-  loadingText: {
-    textAlign: 'center',
-    marginTop: 16,
-    fontSize: 16,
-    color: '#666'
-  },
-  
-  emptyContainer: {
+
+  // List Styles
+  scroll: {
     flex: 1,
+  },
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 40,
+  },
+
+  card: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 6,
+    marginBottom: 4,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    height: 80,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1.41,
+    elevation: 2,
+    borderWidth: 0.5,
+    borderColor: '#E0E0E0',
+  },
+
+  imageWrapper: {
+    width: 60,
+    height: 60,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 32,
+    marginRight: 12,
   },
-  
-  emptyText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 8,
+  productImage: {
+    width: 50,
+    height: 50,
   },
-  
-  emptySubtext: {
+  placeholderImage: {
+    backgroundColor: '#F5F5F5',
+    borderRadius: 4,
+    width: 50,
+    height: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  textWrapper: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  productName: {
     fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
+    fontWeight: '700',
+    color: '#000',
   },
+
+  inputWrapper: {
+    justifyContent: 'center',
+  },
+  input: {
+    width: 70,
+    height: 30,
+    borderWidth: 1,
+    borderColor: '#CAC4D0',
+    borderRadius: 4,
+    textAlign: 'center',
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1E293B',
+    backgroundColor: '#FFFFFF',
+  },
+  inputActive: {
+    borderColor: '#3880FF',
+    backgroundColor: '#F5F9FF',
+    borderWidth: 1.5,
+  },
+  footer: {
+    backgroundColor: '#FFFFFF',
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0',
+  },
+  button: {
+    backgroundColor: '#3880FF',
+    paddingVertical: 14,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  buttonDisabled: {
+    backgroundColor: '#94A3B8',
+  },
+  buttonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700'
+  },
+  emptyContainer: {
+    padding: 40,
+    alignItems: 'center',
+  },
+  emptyText: {
+    color: '#888',
+  }
 })
 
 export default MorningStockScreen

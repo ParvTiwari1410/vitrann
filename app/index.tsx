@@ -1,7 +1,5 @@
 "use client"
 
-// app/index.tsx
-
 import { Ionicons } from "@expo/vector-icons"
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import Constants from 'expo-constants'
@@ -11,6 +9,7 @@ import { useState } from "react"
 
 import {
   ActivityIndicator,
+  Image,
   KeyboardAvoidingView,
   Platform,
   SafeAreaView,
@@ -23,10 +22,8 @@ import {
 } from "react-native"
 import Toast from 'react-native-toast-message'
 
-// Get API URL from environment variables
 const API_BASE_URL = Constants.expoConfig?.extra?.EXPO_PUBLIC_API_BASE_URL ?? 'https://theinfranova.com/api';
 
-// Interface for backend response
 interface WorkerLoginResponse {
   success: boolean
   message: string
@@ -52,29 +49,15 @@ export default function Index() {
   const handleLogin = async () => {
     // Validation
     if (!phoneNumber.trim()) {
-      Toast.show({
-        type: 'error',
-        text1: 'Error',
-        text2: 'Please enter your phone number',
-      });
+      Toast.show({ type: 'error', text1: 'Error', text2: 'Please enter your phone number' });
       return;
     }
-
     if (phoneNumber.length !== 10) {
-      Toast.show({
-        type: 'error',
-        text1: 'Error',
-        text2: 'Phone number must be 10 digits',
-      });
+      Toast.show({ type: 'error', text1: 'Error', text2: 'Phone number must be 10 digits' });
       return;
     }
-
     if (!password.trim()) {
-      Toast.show({
-        type: 'error',
-        text1: 'Error',
-        text2: 'Please enter your password',
-      });
+      Toast.show({ type: 'error', text1: 'Error', text2: 'Please enter your password' });
       return;
     }
 
@@ -110,7 +93,6 @@ export default function Index() {
           text2: `Welcome, ${data.worker.firstName}!`,
         });
 
-        // Navigate to MorningStockScreen after a short delay
         setTimeout(() => {
           router.replace({
             pathname: '/MorningStockScreen',
@@ -151,7 +133,15 @@ export default function Index() {
         >
           <View style={styles.content}>
             <View style={styles.card}>
-              <Text style={styles.heading}>दूध वितरण</Text>
+
+              <View style={styles.logoContainer}>
+                <Image
+                  source={require('../assets/images/icon.png')}
+                  style={styles.logo}
+                  resizeMode="contain"
+                />
+              </View>
+
               <Text style={styles.subtitle}>Worker Login Portal</Text>
 
               {/* Phone Number Input */}
@@ -163,7 +153,7 @@ export default function Index() {
                   style={styles.icon}
                 />
                 <TextInput
-                  placeholder="Enter 10-digit phone number"
+                  placeholder="Enter your number"
                   value={phoneNumber}
                   onChangeText={(text) => {
                     const cleanText = text.replace(/[^0-9]/g, "").slice(0, 10)
@@ -178,7 +168,7 @@ export default function Index() {
                 />
               </View>
 
-              {/* Password Input */}
+              {/* Password Input (Original Styling) */}
               <View style={styles.inputWrapper}>
                 <Ionicons
                   name="lock-closed-outline"
@@ -208,7 +198,7 @@ export default function Index() {
                 </TouchableOpacity>
               </View>
 
-              {/* Login Button */}
+              {/* Login Button (Original Styling) */}
               <TouchableOpacity
                 style={[
                   styles.button,
@@ -227,12 +217,6 @@ export default function Index() {
                 )}
               </TouchableOpacity>
 
-              {/* Helper text */}
-              <View style={styles.helperContainer}>
-                <Text style={styles.helperText}>
-                  Enter your registered 10-digit phone number and password to access the worker portal.
-                </Text>
-              </View>
             </View>
           </View>
         </KeyboardAvoidingView>
@@ -268,12 +252,13 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 3,
   },
-  heading: {
-    fontSize: 28,
-    fontWeight: "700",
-    color: "#1E293B",
-    textAlign: "center",
-    marginBottom: 8,
+  logoContainer: {
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  logo: {
+    width: 120,
+    height: 120,
   },
   subtitle: {
     fontSize: 16,
@@ -319,17 +304,5 @@ const styles = StyleSheet.create({
   loadingContainer: {
     flexDirection: "row",
     alignItems: "center",
-  },
-  helperContainer: {
-    marginTop: 16,
-    padding: 12,
-    backgroundColor: "#F1F5F9",
-    borderRadius: 6,
-  },
-  helperText: {
-    fontSize: 14,
-    color: "#64748B",
-    textAlign: "center",
-    lineHeight: 18,
   },
 })
